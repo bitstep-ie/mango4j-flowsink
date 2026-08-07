@@ -2,7 +2,7 @@
 
 ## What This Library Does
 
-`mango4j-instrument` adds annotation-driven flow and step instrumentation to Spring applications.
+`mango4j-flowsink` adds annotation-driven flow and step instrumentation to Spring applications.
 
 Use it when you want to capture:
 
@@ -36,9 +36,9 @@ Use it when you want to capture:
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.RestController;
 
-import ie.bitstep.mango.instrument.annotations.Flow;
-import ie.bitstep.mango.instrument.annotations.PushAttribute;
-import ie.bitstep.mango.instrument.annotations.Step;
+import ie.bitstep.mango.flowsink.annotations.Flow;
+import ie.bitstep.mango.flowsink.annotations.PushAttribute;
+import ie.bitstep.mango.flowsink.annotations.Step;
 
 @RestController
 class CheckoutController {

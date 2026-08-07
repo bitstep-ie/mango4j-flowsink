@@ -32,7 +32,7 @@ when the chain completes.
 
 ## When It Activates
 
-`@EnableMangoInstrumentation` imports the trace configuration conditionally when the relevant servlet or reactive web classes are on the classpath.
+`@EnableMangoFlowSink` imports the trace configuration conditionally when the relevant servlet or reactive web classes are on the classpath.
 
 That means:
 
@@ -54,8 +54,8 @@ import jakarta.servlet.Filter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import ie.bitstep.mango.instrument.core.FlowProcessorSupport;
-import ie.bitstep.mango.instrument.spring.web.TraceContextFilter;
+import ie.bitstep.mango.flowsink.core.FlowProcessorSupport;
+import ie.bitstep.mango.flowsink.spring.web.TraceContextFilter;
 
 @Configuration
 class AppConfig {

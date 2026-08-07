@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>ie.bitstep.mango</groupId>
+        <artifactId>mango4j-flowsink-parent</artifactId>
+        <version>0.1.2</version>
+    </parent>
+
+    <artifactId>mango4j-flowsink-core</artifactId>
+    <packaging>jar</packaging>
+    <name>mango4j-flowsink-core</name>
+
+    <build>
+        <plugins>
+            <!-- PITEST: mvn -pl mango4j-flowsink-core test-compile org.pitest:pitest-maven:mutationCoverage -->
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <configuration>
+                    <skip>${pitest.skip}</skip>
+                    <mutationThreshold>100</mutationThreshold>
+                    <targetClasses>
+                        <param>ie.bitstep.mango.flowsink.core.processor*</param>
+                        <param>ie.bitstep.mango.flowsink.context*</param>
+                        <param>ie.bitstep.mango.flowsink.model*</param>
+                        <param>ie.bitstep.mango.flowsink.validation*</param>
+                    </targetClasses>
+                    <targetTests>
+                        <param>ie.bitstep.mango.flowsink.core*</param>
+                        <param>ie.bitstep.mango.flowsink.context*</param>
+                        <param>ie.bitstep.mango.flowsink.model*</param>
+                        <param>ie.bitstep.mango.flowsink.validation*</param>
+                    </targetTests>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>pitest</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>mutationCoverage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>ie.bitstep.mango</groupId>
+            <artifactId>mango4j-flowsink-annotations</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <version>${opentelemetry.api.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.17</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.5.18</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

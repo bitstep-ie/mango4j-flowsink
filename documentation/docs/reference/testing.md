@@ -23,8 +23,8 @@ mvn -q -Ppitest verify
 
 Mutation testing is focused on the runtime-heavy modules:
 
-- `mango4j-instrument-core`
-- `mango4j-instrument-spring`
+- `mango4j-flowsink-core`
+- `mango4j-flowsink-spring`
 
 The annotations module is intentionally excluded because it is mostly declarative API surface, and the Boot module remains thin configuration glue.
 

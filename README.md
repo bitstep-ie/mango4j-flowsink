@@ -1,19 +1,19 @@
-# mango4j-instrument
+# mango4j-flowsink
 
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=bitstep-ie_mango4j-instrument&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=bitstep-ie_mango4j-instrument)
-[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=bitstep-ie_mango4j-instrument&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=bitstep-ie_mango4j-instrument)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=bitstep-ie_mango4j-instrument&metric=coverage)](https://sonarcloud.io/summary/new_code?id=bitstep-ie_mango4j-instrument)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=bitstep-ie_mango4j-instrument&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=bitstep-ie_mango4j-instrument)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=bitstep-ie_mango4j-flowsink&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=bitstep-ie_mango4j-flowsink)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=bitstep-ie_mango4j-flowsink&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=bitstep-ie_mango4j-flowsink)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=bitstep-ie_mango4j-flowsink&metric=coverage)](https://sonarcloud.io/summary/new_code?id=bitstep-ie_mango4j-flowsink)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=bitstep-ie_mango4j-flowsink&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=bitstep-ie_mango4j-flowsink)
 
 
-[![CI](https://github.com/bitstep-ie/mango4j-instrument/actions/workflows/packages.yml/badge.svg)](https://github.com/bitstep-ie/mango4j-instrument/actions/workflows/packages.yml)
-[![CodeQL](https://github.com/bitstep-ie/mango4j-instrument/actions/workflows/codeql.yml/badge.svg)](https://github.com/bitstep-ie/mango4j-instrument/actions/workflows/codeql.yml)
-[![Dependabot](https://github.com/bitstep-ie/mango4j-instrument/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/bitstep-ie/mango4j-instrument/actions/workflows/dependabot/dependabot-updates)
+[![CI](https://github.com/bitstep-ie/mango4j-flowsink/actions/workflows/packages.yml/badge.svg)](https://github.com/bitstep-ie/mango4j-flowsink/actions/workflows/packages.yml)
+[![CodeQL](https://github.com/bitstep-ie/mango4j-flowsink/actions/workflows/codeql.yml/badge.svg)](https://github.com/bitstep-ie/mango4j-flowsink/actions/workflows/codeql.yml)
+[![Dependabot](https://github.com/bitstep-ie/mango4j-flowsink/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/bitstep-ie/mango4j-flowsink/actions/workflows/dependabot/dependabot-updates)
 
 <br/>
 
 <div align="center">
-    <a href="https://github.com/bitstep-ie/mango4j-instrument">
+    <a href="https://github.com/bitstep-ie/mango4j-flowsink">
     <picture>
         <source srcset="documentation/docs/assets/mango-with-text-black.png" media="(prefers-color-scheme: light)">
         <source srcset="documentation/docs/assets/mango-with-text-white.png" media="(prefers-color-scheme: dark)">
@@ -21,18 +21,18 @@
     </picture>
     </a>
 
-  <h3 align="center">mango4j-instrument</h3>
+  <h3 align="center">mango4j-flowsink</h3>
 
   <p align="center">
     Annotation‑based flow and step instrumentation for Spring applications.
     <br/><br/>
-    <a href="https://bitstep-ie.github.io/mango4j-instrument/latest"><strong>View Documentation</strong></a>
+    <a href="https://bitstep-ie.github.io/mango4j-flowsink/latest"><strong>View Documentation</strong></a>
     <br/><br/>
     <a href="https://github.com/bitstep-ie/mango4j-examples">Example Application</a>
     &middot;
-    <a href="https://github.com/bitstep-ie/mango4j-instrument/issues/new?template=bug_report.md">Report Bug</a>
+    <a href="https://github.com/bitstep-ie/mango4j-flowsink/issues/new?template=bug_report.md">Report Bug</a>
     &middot;
-    <a href="https://github.com/bitstep-ie/mango4j-instrument/issues/new?template=feature_request.md">Request Feature</a>
+    <a href="https://github.com/bitstep-ie/mango4j-flowsink/issues/new?template=feature_request.md">Request Feature</a>
   </p>
 </div>
 
@@ -40,7 +40,7 @@
 
 # Introduction
 
-**mango4j‑instrument** provides a simple, annotation‑first programming model for capturing flows, steps, metadata, and execution lifecycle events in Spring applications.
+**mango4j‑flowsink** provides a simple, annotation‑first programming model for capturing flows, steps, metadata, and execution lifecycle events in Spring applications.
 
 Instrument your code with:
 
@@ -61,7 +61,7 @@ Add either the plain Spring runtime or the Spring Boot integration:
 ```xml
 <dependency>
     <groupId>ie.bitstep.mango</groupId>
-    <artifactId>mango4j-instrument-spring</artifactId>
+    <artifactId>mango4j-flowsink-spring</artifactId>
     <version>0.1.1</version>
 </dependency>
 ```
@@ -69,7 +69,7 @@ Add either the plain Spring runtime or the Spring Boot integration:
 ```xml
 <dependency>
     <groupId>ie.bitstep.mango</groupId>
-    <artifactId>mango4j-instrument-spring-boot</artifactId>
+    <artifactId>mango4j-flowsink-spring-boot</artifactId>
     <version>0.1.1</version>
 </dependency>
 ```
@@ -77,10 +77,10 @@ Add either the plain Spring runtime or the Spring Boot integration:
 Enable instrumentation:
 
 ```java
-import ie.bitstep.mango.instrument.spring.EnableMangoInstrumentation;
+import ie.bitstep.mango.flowsink.spring.EnableMangoFlowSink;
 
 @SpringBootApplication
-@EnableMangoInstrumentation
+@EnableMangoFlowSink
 public class DemoApplication {}
 ```
 
@@ -113,12 +113,12 @@ Listen to lifecycle events:
 ```java
 import java.util.Map;
 
-import ie.bitstep.mango.instrument.model.FlowEvent;
-import ie.bitstep.mango.instrument.annotations.OnFlowCompleted;
-import ie.bitstep.mango.instrument.annotations.OnFlowScope;
-import ie.bitstep.mango.instrument.annotations.OnFlowStarted;
-import ie.bitstep.mango.instrument.annotations.PullAllAttributes;
-import ie.bitstep.mango.instrument.spring.annotations.FlowSink;
+import ie.bitstep.mango.flowsink.model.FlowEvent;
+import ie.bitstep.mango.flowsink.annotations.OnFlowCompleted;
+import ie.bitstep.mango.flowsink.annotations.OnFlowScope;
+import ie.bitstep.mango.flowsink.annotations.OnFlowStarted;
+import ie.bitstep.mango.flowsink.annotations.PullAllAttributes;
+import ie.bitstep.mango.flowsink.spring.annotations.FlowSink;
 
 @FlowSink
 @OnFlowScope("demo.")
@@ -143,7 +143,7 @@ Lifecycle and outcome semantics:
 
 # Learn More
 
-*   📘 Docs: <https://bitstep-ie.github.io/mango4j-instrument/latest>
+*   📘 Docs: <https://bitstep-ie.github.io/mango4j-flowsink/latest>
 *   🔎 Examples: <https://github.com/bitstep-ie/mango4j-examples>
 
 ***
