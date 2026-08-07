@@ -7,7 +7,7 @@
     <parent>
         <groupId>ie.bitstep.mango</groupId>
         <artifactId>mango4j-flowsink-parent</artifactId>
-        <version>0.1.3-SNAPSHOT</version>
+        <version>0.1.3</version>
     </parent>
 
     <artifactId>mango4j-flowsink-annotations</artifactId>
