@@ -17,6 +17,7 @@ Use it when you want to capture:
 - [Overview](overview.md)
 - [Getting Started](getting-started.md)
 - [Flows And Steps](flows-and-steps.md)
+- [Flow Context](flow-context.md)
 - [Flow Sinks](flow-sinks.md)
 - [Web Tracing](web-tracing.md)
 - [Spring Boot](spring-boot.md)
@@ -26,6 +27,7 @@ Use it when you want to capture:
 
 - `guide/getting-started.md` shows the shortest path to a working app.
 - `guide/flows-and-steps.md` explains the event model and annotations on application methods.
+- `guide/flow-context.md` explains the programmatic alternative to `@PushAttribute`/`@PushContextValue`.
 - `guide/flow-sinks.md` explains how to receive events.
 - `reference/event-model.md` explains `FlowEvent` and `StepEvent`.
 - `reference/*.md` documents module boundaries and lifecycle semantics.

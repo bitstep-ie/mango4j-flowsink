@@ -13,6 +13,7 @@
 - [Guide](guide/guide.md)
 - [Getting Started](guide/getting-started.md)
 - [Flows And Steps](guide/flows-and-steps.md)
+- [Flow Context](guide/flow-context.md)
 - [Flow Sinks](guide/flow-sinks.md)
 - [Web Tracing](guide/web-tracing.md)
 - [Event Model](reference/event-model.md)
