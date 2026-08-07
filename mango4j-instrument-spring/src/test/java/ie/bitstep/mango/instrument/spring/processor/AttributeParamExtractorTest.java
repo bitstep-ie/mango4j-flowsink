@@ -11,7 +11,6 @@ import ie.bitstep.mango.instrument.annotations.PushAttribute;
 import ie.bitstep.mango.instrument.annotations.PushContextValue;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AttributeParamExtractorTest {
 
@@ -62,12 +61,16 @@ class AttributeParamExtractorTest {
 	}
 
 	@Test
-	void rejects_hibernate_entity_values_before_adding_attributes() throws NoSuchMethodException {
+	void passes_entity_values_through_to_attributes_without_early_validation() throws NoSuchMethodException {
+		// Validation is deferred to DefaultFlowProcessor.validate() so that the configured
+		// FlowAttributeValidator log level is respected. The extractor just extracts.
 		Method method = Sample.class.getDeclaredMethod("entityAttr", EntityPayload.class);
+		EntityPayload entity = new EntityPayload();
 
-		assertThatThrownBy(() -> AttributeParamExtractor.extract(joinPoint(method, new Object[] {new EntityPayload()})))
-				.isInstanceOf(IllegalArgumentException.class)
-				.hasMessageContaining("payload");
+		AttributeParamExtractor.AttrCtx result =
+				AttributeParamExtractor.extract(joinPoint(method, new Object[] {entity}));
+
+		assertThat(result.attributes()).containsEntry("payload", entity);
 	}
 
 	private static ProceedingJoinPoint joinPoint(Method method, Object[] args) {

@@ -3,11 +3,14 @@ package ie.bitstep.mango.instrument.context;
 import java.util.Map;
 import java.util.Objects;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ie.bitstep.mango.instrument.core.FlowProcessorSupport;
 import ie.bitstep.mango.instrument.model.FlowEvent;
 import ie.bitstep.mango.instrument.validation.FlowAttributeValidator;
 
 public class FlowContext {
+	private static final Logger log = LoggerFactory.getLogger(FlowContext.class);
 	private final FlowProcessorSupport support;
 	private final FlowAttributeValidator validator;
 
@@ -36,6 +39,8 @@ public class FlowContext {
 		if (context != null) {
 			validate(key, value);
 			context.attributes().put(key, value);
+		} else {
+			log.debug("FlowContext.putAttr: no active flow on this thread — attribute '{}' was not recorded", key);
 		}
 		return value;
 	}
@@ -46,6 +51,9 @@ public class FlowContext {
 		}
 		FlowEvent context = support.currentContext();
 		if (context == null) {
+			log.debug(
+					"FlowContext.putAllAttrs: no active flow on this thread — {} attribute(s) were not recorded",
+					map.size());
 			return;
 		}
 		map.forEach((key, value) -> {
@@ -64,6 +72,8 @@ public class FlowContext {
 		if (context != null) {
 			validate(key, value);
 			context.eventContext().put(key, value);
+		} else {
+			log.debug("FlowContext.putContext: no active flow on this thread — context key '{}' was not recorded", key);
 		}
 		return value;
 	}
@@ -74,6 +84,9 @@ public class FlowContext {
 		}
 		FlowEvent context = support.currentContext();
 		if (context == null) {
+			log.debug(
+					"FlowContext.putAllContext: no active flow on this thread — {} context value(s) were not recorded",
+					map.size());
 			return;
 		}
 		map.forEach((key, value) -> {

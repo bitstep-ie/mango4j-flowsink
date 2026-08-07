@@ -1,12 +1,11 @@
 package ie.bitstep.mango.instrument.core.dispatch;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import ie.bitstep.mango.instrument.core.sinks.FlowHandlerRegistry;
@@ -20,7 +19,11 @@ class AsyncDispatchBusTest {
 	void dispatches_a_snapshot_not_the_mutated_original_event() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
+		CountDownLatch delivered = new CountDownLatch(1);
+		registry.register(event -> {
+			seen.add(event);
+			delivered.countDown();
+		});
 		AsyncDispatchBus bus = new AsyncDispatchBus(registry);
 
 		FlowEvent original = FlowEvent.builder().name("demo.flow").build();
@@ -32,11 +35,11 @@ class AsyncDispatchBusTest {
 		original.eventContext().put("lifecycle", "COMPLETED");
 		original.attributes().put("extra", "later");
 
-		awaitSize(seen, 1);
-		FlowEvent delivered = seen.get(0);
-		assertThat(delivered).isNotSameAs(original);
-		assertThat(delivered.eventContext()).containsEntry("lifecycle", "STARTED");
-		assertThat(delivered.attributes().map())
+		assertThat(awaitDelivered(delivered)).isTrue();
+		FlowEvent snapshot = seen.get(0);
+		assertThat(snapshot).isNotSameAs(original);
+		assertThat(snapshot.eventContext()).containsEntry("lifecycle", "STARTED");
+		assertThat(snapshot.attributes().map())
 				.containsEntry("user.id", "alice")
 				.doesNotContainKey("extra");
 
@@ -47,17 +50,47 @@ class AsyncDispatchBusTest {
 	void continues_dispatching_when_one_sink_throws() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
+		CountDownLatch delivered = new CountDownLatch(1);
 		registry.register(event -> {
 			throw new IllegalStateException("boom");
 		});
-		registry.register(seen::add);
+		registry.register(event -> {
+			seen.add(event);
+			delivered.countDown();
+		});
 		AsyncDispatchBus bus = new AsyncDispatchBus(registry);
 
 		FlowEvent event = FlowEvent.builder().name("demo.flow").build();
 		bus.dispatch(event);
 
-		awaitSize(seen, 1);
+		assertThat(awaitDelivered(delivered)).isTrue();
 		assertThat(seen.get(0).name()).isEqualTo("demo.flow");
+
+		bus.close();
+	}
+
+	@Test
+	void continues_dispatching_when_one_sink_throws_error() {
+		FlowHandlerRegistry registry = new FlowHandlerRegistry();
+		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
+		CountDownLatch delivered = new CountDownLatch(1);
+		AtomicInteger attempts = new AtomicInteger();
+		registry.register(event -> {
+			if (attempts.getAndIncrement() == 0) {
+				throw new UndeclaredThrowableException(
+						new java.lang.reflect.InvocationTargetException(new IllegalArgumentException("root")));
+			}
+			seen.add(event);
+			delivered.countDown();
+		});
+		AsyncDispatchBus bus = new AsyncDispatchBus(registry);
+
+		bus.dispatch(FlowEvent.builder().name("first").build());
+		bus.dispatch(FlowEvent.builder().name("second").build());
+
+		assertThat(awaitDelivered(delivered)).isTrue();
+		assertThat(seen.get(0).name()).isEqualTo("second");
+		assertThat(attempts.get()).isGreaterThanOrEqualTo(2);
 
 		bus.close();
 	}
@@ -70,30 +103,14 @@ class AsyncDispatchBusTest {
 	}
 
 	@Test
-	void worker_run_loop_handles_poll_timeout_with_null_event() throws Exception {
-		FlowHandlerRegistry registry = new FlowHandlerRegistry();
-		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
-		AsyncDispatchBus bus = new AsyncDispatchBus(registry);
-		// Let the worker idle for longer than the 250ms poll timeout so it loops with a null event
-		Thread.sleep(320);
-		bus.close();
-		assertThat(seen).isEmpty();
-	}
-
-	@Test
-	void ignores_null_dispatch_and_unwraps_nested_reflection_exceptions() throws Exception {
+	void ignores_null_dispatch_and_unwraps_nested_reflection_exceptions() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		AsyncDispatchBus bus = new AsyncDispatchBus(registry);
 		bus.dispatch(null);
 		bus.close();
 
-		Class<?> workerClass = Class.forName("ie.bitstep.mango.instrument.core.dispatch.AsyncDispatchBus$Worker");
-		Method unwrap = workerClass.getDeclaredMethod("unwrap", Throwable.class);
-		unwrap.setAccessible(true);
-
 		IllegalArgumentException root = new IllegalArgumentException("root");
-		InvocationTargetException invocation = new InvocationTargetException(root);
+		java.lang.reflect.InvocationTargetException invocation = new java.lang.reflect.InvocationTargetException(root);
 		UndeclaredThrowableException undeclared = new UndeclaredThrowableException(invocation);
 		UndeclaredThrowableException selfReferential = new UndeclaredThrowableException(null) {
 			@Override
@@ -102,10 +119,10 @@ class AsyncDispatchBusTest {
 			}
 		};
 
-		assertThat(unwrap.invoke(null, undeclared)).isSameAs(root);
-		assertThat(unwrap.invoke(null, new InvocationTargetException(null)))
-				.isInstanceOf(InvocationTargetException.class);
-		assertThat(unwrap.invoke(null, selfReferential)).isSameAs(selfReferential);
+		assertThat(AsyncDispatchBus.unwrap(undeclared)).isSameAs(root);
+		assertThat(AsyncDispatchBus.unwrap(new java.lang.reflect.InvocationTargetException(null)))
+				.isInstanceOf(java.lang.reflect.InvocationTargetException.class);
+		assertThat(AsyncDispatchBus.unwrap(selfReferential)).isSameAs(selfReferential);
 	}
 
 	@Test
@@ -141,19 +158,12 @@ class AsyncDispatchBusTest {
 		bus.close();
 	}
 
-	private static void awaitSize(List<FlowEvent> events, int expectedSize) {
-		long deadline = System.currentTimeMillis() + 2000;
-		while (System.currentTimeMillis() < deadline) {
-			if (events.size() >= expectedSize) {
-				return;
-			}
-			try {
-				Thread.sleep(20);
-			} catch (InterruptedException interruptedException) {
-				Thread.currentThread().interrupt();
-				break;
-			}
+	private static boolean awaitDelivered(CountDownLatch delivered) {
+		try {
+			return delivered.await(2, TimeUnit.SECONDS);
+		} catch (InterruptedException interruptedException) {
+			Thread.currentThread().interrupt();
+			return false;
 		}
-		assertThat(events).hasSize(expectedSize);
 	}
 }

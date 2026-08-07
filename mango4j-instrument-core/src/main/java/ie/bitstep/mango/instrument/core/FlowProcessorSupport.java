@@ -3,6 +3,7 @@ package ie.bitstep.mango.instrument.core;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +15,8 @@ public class FlowProcessorSupport {
 	private static final String ORPHAN_MESSAGE = "Step '{}' executed with no active Flow; auto-promoted to Flow.";
 
 	private final ThreadLocal<Deque<FlowEvent>> stack = ThreadLocal.withInitial(ArrayDeque::new);
+	private final ThreadLocal<Boolean> webFlowMarker = ThreadLocal.withInitial(() -> false);
+	private final ThreadLocal<Map<String, Object>> webFlowContext = new ThreadLocal<>();
 	private volatile boolean enabled = true;
 
 	public boolean isEnabled() {
@@ -67,8 +70,36 @@ public class FlowProcessorSupport {
 		// Reserved for future batching support.
 	}
 
+	public void markWebFlow() {
+		webFlowMarker.set(true);
+	}
+
+	public boolean consumeWebFlowMarker() {
+		if (Boolean.TRUE.equals(webFlowMarker.get())) {
+			webFlowMarker.set(false);
+			return true;
+		}
+		return false;
+	}
+
+	public void setWebFlowContext(Map<String, Object> context) {
+		if (context == null || context.isEmpty()) {
+			webFlowContext.remove();
+			return;
+		}
+		webFlowContext.set(Map.copyOf(context));
+	}
+
+	public Map<String, Object> consumeWebFlowContext() {
+		Map<String, Object> context = webFlowContext.get();
+		webFlowContext.remove();
+		return context;
+	}
+
 	public void cleanupThreadLocals() {
 		stack.remove();
+		webFlowMarker.remove();
+		webFlowContext.remove();
 	}
 
 	public long unixNanos(Instant instant) {

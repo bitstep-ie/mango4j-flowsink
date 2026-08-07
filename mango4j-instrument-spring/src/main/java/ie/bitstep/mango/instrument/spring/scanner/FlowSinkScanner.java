@@ -1,10 +1,13 @@
 package ie.bitstep.mango.instrument.spring.scanner;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,7 +40,9 @@ import ie.bitstep.mango.instrument.annotations.PullAttribute;
 import ie.bitstep.mango.instrument.annotations.PullContextValue;
 import ie.bitstep.mango.instrument.annotations.RequiredAttributes;
 import ie.bitstep.mango.instrument.annotations.RequiredEventContext;
+import ie.bitstep.mango.instrument.core.processor.DefaultFlowProcessor;
 import ie.bitstep.mango.instrument.core.sinks.FlowHandlerRegistry;
+import ie.bitstep.mango.instrument.core.sinks.FlowSinkHandler;
 import ie.bitstep.mango.instrument.model.FlowEvent;
 import ie.bitstep.mango.instrument.spring.annotations.FlowSink;
 
@@ -65,10 +70,14 @@ public class FlowSinkScanner implements BeanPostProcessor {
 
 		CompiledSink compiledSink = compileSink(bean, targetType);
 		if (compiledSink.handlers.isEmpty() && compiledSink.fallbacks.isEmpty()) {
+			log.warn(
+					"FlowSink {} has no invocable handler methods and will not receive events. "
+							+ "Check that handler methods are public and not hidden by a proxy.",
+					targetType.getSimpleName());
 			return bean;
 		}
 
-		registrySupplier.get().register(compiledSink::dispatch);
+		registrySupplier.get().register(compiledSink);
 		log.info(
 				"Registered FlowSink: {} (handlers={}, fallbacks={})",
 				targetType.getSimpleName(),
@@ -78,55 +87,48 @@ public class FlowSinkScanner implements BeanPostProcessor {
 	}
 
 	private CompiledSink compileSink(Object bean, Class<?> type) {
-		List<String> classScopes = extractScopes(type.getAnnotations());
-		Set<OnFlowLifecycle.Lifecycle> classLifecycles = extractLifecycles(type.getAnnotations());
+		List<String> classScopes = extractScopes(type);
+		Set<OnFlowLifecycle.Lifecycle> classLifecycles = extractLifecycles(type);
 		List<CompiledHandler> handlers = new ArrayList<>();
 		List<CompiledHandler> fallbacks = new ArrayList<>();
 
-		ReflectionUtils.doWithMethods(type, method -> {
-			CompiledHandler compiledHandler = compileHandler(bean, method, classScopes, classLifecycles);
-			if (compiledHandler == null) {
-				return;
-			}
-			if (compiledHandler.fallback) {
-				fallbacks.add(compiledHandler);
-			} else {
-				handlers.add(compiledHandler);
-			}
-		});
+		ReflectionUtils.doWithMethods(
+				type,
+				method -> {
+					CompiledHandler compiledHandler = compileHandler(bean, method, classScopes, classLifecycles);
+					if (compiledHandler == null) {
+						return;
+					}
+					if (compiledHandler.fallback) {
+						fallbacks.add(compiledHandler);
+					} else {
+						handlers.add(compiledHandler);
+					}
+				},
+				method -> !method.isBridge());
 
-		return new CompiledSink(handlers, fallbacks);
+		return new CompiledSink(handlers, fallbacks, type.getSimpleName());
 	}
 
-	private static List<String> extractScopes(Annotation[] annotations) {
+	private static List<String> extractScopes(AnnotatedElement element) {
 		List<String> scopes = new ArrayList<>();
-		for (Annotation annotation : annotations) {
-			if (annotation instanceof OnFlowScope scope) {
-				scopes.add(nullToEmpty(scope.value()));
-			} else if (annotation instanceof OnFlowScopes scopesAnnotation) {
-				for (OnFlowScope scope : scopesAnnotation.value()) {
-					scopes.add(nullToEmpty(scope.value()));
-				}
-			}
+		for (OnFlowScope scope :
+				AnnotatedElementUtils.getMergedRepeatableAnnotations(element, OnFlowScope.class, OnFlowScopes.class)) {
+			scopes.add(nullToEmpty(scope.value()));
 		}
 		return scopes;
 	}
 
-	private static Set<OnFlowLifecycle.Lifecycle> extractLifecycles(Annotation[] annotations) {
-		EnumSet<OnFlowLifecycle.Lifecycle> lifecycles = EnumSet.noneOf(OnFlowLifecycle.Lifecycle.class);
-		boolean all = false;
-		for (Annotation annotation : annotations) {
-			if (annotation instanceof OnAllLifecycles) {
-				all = true;
-			} else if (annotation instanceof OnFlowLifecycle lifecycle) {
-				lifecycles.add(lifecycle.value());
-			} else if (annotation instanceof OnFlowLifecycles lifecyclesAnnotation) {
-				for (OnFlowLifecycle lifecycle : lifecyclesAnnotation.value()) {
-					lifecycles.add(lifecycle.value());
-				}
-			}
+	private static Set<OnFlowLifecycle.Lifecycle> extractLifecycles(AnnotatedElement element) {
+		if (AnnotatedElementUtils.hasAnnotation(element, OnAllLifecycles.class)) {
+			return EnumSet.allOf(OnFlowLifecycle.Lifecycle.class);
 		}
-		return all ? EnumSet.allOf(OnFlowLifecycle.Lifecycle.class) : lifecycles;
+		EnumSet<OnFlowLifecycle.Lifecycle> lifecycles = EnumSet.noneOf(OnFlowLifecycle.Lifecycle.class);
+		for (OnFlowLifecycle lifecycle : AnnotatedElementUtils.getMergedRepeatableAnnotations(
+				element, OnFlowLifecycle.class, OnFlowLifecycles.class)) {
+			lifecycles.add(lifecycle.value());
+		}
+		return lifecycles;
 	}
 
 	private CompiledHandler compileHandler(
@@ -142,30 +144,47 @@ public class FlowSinkScanner implements BeanPostProcessor {
 			return null;
 		}
 
-		boolean started = method.isAnnotationPresent(OnFlowStarted.class);
-		boolean completed = method.isAnnotationPresent(OnFlowCompleted.class);
-		boolean failure = method.isAnnotationPresent(OnFlowFailure.class);
-		boolean success = method.isAnnotationPresent(OnFlowSuccess.class);
-		boolean fallback = method.isAnnotationPresent(OnFlowNotMatched.class);
-		OnFlowLifecycle lifecycle = method.getAnnotation(OnFlowLifecycle.class);
-		boolean lifecycleDeclared = started || completed || failure || success || lifecycle != null || fallback;
+		boolean started = AnnotatedElementUtils.hasAnnotation(bridged, OnFlowStarted.class);
+		boolean completed = AnnotatedElementUtils.hasAnnotation(bridged, OnFlowCompleted.class);
+		boolean failure = AnnotatedElementUtils.hasAnnotation(bridged, OnFlowFailure.class);
+		boolean success = AnnotatedElementUtils.hasAnnotation(bridged, OnFlowSuccess.class);
+		boolean fallback = AnnotatedElementUtils.hasAnnotation(bridged, OnFlowNotMatched.class);
+		Set<OnFlowLifecycle.Lifecycle> methodLifecycles = extractLifecycles(bridged);
+		boolean lifecycleDeclared =
+				started || completed || failure || success || !methodLifecycles.isEmpty() || fallback;
 		if (!lifecycleDeclared) {
 			return null;
 		}
 
-		EnumSet<OnFlowLifecycle.Lifecycle> lifecycles =
-				buildMethodLifecycles(started, completed, success, failure, lifecycle, classLifecycles);
+		// Fallback handlers are not subject to class-level scope or lifecycle restrictions —
+		// they fire when no regular handler matched, regardless of what filtered those handlers out.
+		// A fallback with no method-level lifecycle annotation is lifecycle-agnostic (allOf).
+		EnumSet<OnFlowLifecycle.Lifecycle> lifecycles;
+		if (fallback) {
+			lifecycles = methodLifecycles.isEmpty()
+					? EnumSet.allOf(OnFlowLifecycle.Lifecycle.class)
+					: EnumSet.copyOf(methodLifecycles);
+		} else {
+			lifecycles = buildMethodLifecycles(started, completed, success, failure, methodLifecycles, classLifecycles);
+		}
 
 		ReflectionUtils.makeAccessible(invocable);
 		Parameter[] parameters = invocable.getParameters();
 		Annotation[][] parameterAnnotations = invocable.getParameterAnnotations();
 		List<Function<FlowEvent, Object>> bindings = new ArrayList<>(parameters.length);
-		boolean allowThrowable = allowsThrowable(failure, lifecycle);
+		boolean allowThrowable = allowsThrowable(completed, failure, methodLifecycles);
 		for (int index = 0; index < parameters.length; index++) {
 			Function<FlowEvent, Object> binding =
 					buildParamBinding(parameters[index], parameterAnnotations[index], allowThrowable);
 			if (binding == null) {
-				return null;
+				throw new IllegalStateException(String.format(
+						"FlowSink %s.%s() parameter '%s' (type %s) cannot be bound. "
+								+ "Annotate it with @PullAttribute, @PullContextValue, @PullAllAttributes, "
+								+ "@PullAllContextValues, or use FlowEvent / Throwable directly.",
+						invocable.getDeclaringClass().getSimpleName(),
+						invocable.getName(),
+						parameters[index].getName(),
+						parameters[index].getType().getSimpleName()));
 			}
 			bindings.add(binding);
 		}
@@ -173,11 +192,11 @@ public class FlowSinkScanner implements BeanPostProcessor {
 		return new CompiledHandler(
 				bean,
 				invocable,
-				classScopes,
-				extractScopes(method.getAnnotations()),
+				fallback ? List.of() : classScopes,
+				extractScopes(bridged),
 				lifecycles,
-				method.getAnnotation(RequiredAttributes.class),
-				method.getAnnotation(RequiredEventContext.class),
+				AnnotatedElementUtils.findMergedAnnotation(bridged, RequiredAttributes.class),
+				AnnotatedElementUtils.findMergedAnnotation(bridged, RequiredEventContext.class),
 				bindings,
 				fallback,
 				failure);
@@ -188,7 +207,7 @@ public class FlowSinkScanner implements BeanPostProcessor {
 			boolean completed,
 			boolean success,
 			boolean failure,
-			OnFlowLifecycle lifecycle,
+			Set<OnFlowLifecycle.Lifecycle> methodLifecycles,
 			Set<OnFlowLifecycle.Lifecycle> classLifecycles) {
 		EnumSet<OnFlowLifecycle.Lifecycle> lifecycles = EnumSet.noneOf(OnFlowLifecycle.Lifecycle.class);
 		if (started) {
@@ -196,6 +215,7 @@ public class FlowSinkScanner implements BeanPostProcessor {
 		}
 		if (completed) {
 			lifecycles.add(OnFlowLifecycle.Lifecycle.COMPLETED);
+			lifecycles.add(OnFlowLifecycle.Lifecycle.FAILED);
 		}
 		if (success) {
 			lifecycles.add(OnFlowLifecycle.Lifecycle.COMPLETED);
@@ -203,20 +223,16 @@ public class FlowSinkScanner implements BeanPostProcessor {
 		if (failure) {
 			lifecycles.add(OnFlowLifecycle.Lifecycle.FAILED);
 		}
-		if (lifecycle != null) {
-			lifecycles.add(lifecycle.value());
-		}
-		if (lifecycles.isEmpty()) {
-			lifecycles = EnumSet.allOf(OnFlowLifecycle.Lifecycle.class);
-		}
+		lifecycles.addAll(methodLifecycles);
 		if (!classLifecycles.isEmpty()) {
 			lifecycles.retainAll(classLifecycles);
 		}
 		return lifecycles;
 	}
 
-	private static boolean allowsThrowable(boolean failure, OnFlowLifecycle lifecycle) {
-		return failure || (lifecycle != null && lifecycle.value() == OnFlowLifecycle.Lifecycle.FAILED);
+	private static boolean allowsThrowable(
+			boolean completed, boolean failure, Set<OnFlowLifecycle.Lifecycle> methodLifecycles) {
+		return completed || failure || methodLifecycles.contains(OnFlowLifecycle.Lifecycle.FAILED);
 	}
 
 	private static Function<FlowEvent, Object> buildParamBinding(
@@ -241,7 +257,7 @@ public class FlowSinkScanner implements BeanPostProcessor {
 		boolean root = false;
 		for (Annotation annotation : annotations) {
 			if (annotation instanceof FlowException flowException
-					&& flowException.value() == FlowException.Source.ROOT) {
+					&& flowException.value() == FlowException.Source.ROOT_CAUSE) {
 				root = true;
 			}
 		}
@@ -251,10 +267,11 @@ public class FlowSinkScanner implements BeanPostProcessor {
 
 	private static Function<FlowEvent, Object> bindAnnotation(Annotation annotation, Class<?> type) {
 		if (annotation instanceof PullAllAttributes) {
-			return event -> event.attributes().map();
+			return event -> Collections.unmodifiableMap(
+					new LinkedHashMap<>(event.attributes().map()));
 		}
 		if (annotation instanceof PullAllContextValues) {
-			return FlowEvent::eventContext;
+			return event -> Collections.unmodifiableMap(new LinkedHashMap<>(event.eventContext()));
 		}
 		if (annotation instanceof PullAttribute pullAttribute) {
 			return event -> coerce(event.attributes().map().get(pullAttribute.value()), type);
@@ -265,10 +282,13 @@ public class FlowSinkScanner implements BeanPostProcessor {
 		return null;
 	}
 
-	private record CompiledSink(List<CompiledHandler> handlers, List<CompiledHandler> fallbacks) {
-		void dispatch(FlowEvent event) {
+	private record CompiledSink(List<CompiledHandler> handlers, List<CompiledHandler> fallbacks, String typeName)
+			implements FlowSinkHandler {
+		@Override
+		public void handle(FlowEvent event) {
 			boolean anyMatched = false;
-			boolean failed = "FAILED".equals(String.valueOf(event.eventContext().get("lifecycle")));
+			boolean failed = DefaultFlowProcessor.FAILED.equals(
+					String.valueOf(event.eventContext().get(DefaultFlowProcessor.LIFECYCLE)));
 
 			if (failed) {
 				anyMatched = dispatchFailureHandlers(event);
@@ -286,9 +306,16 @@ public class FlowSinkScanner implements BeanPostProcessor {
 
 			if (!anyMatched) {
 				for (CompiledHandler fallback : fallbacks) {
-					fallback.invoke(event);
+					if (fallback.matches(event)) {
+						fallback.invoke(event);
+					}
 				}
 			}
+		}
+
+		@Override
+		public String sinkName() {
+			return typeName;
 		}
 
 		private boolean dispatchFailureHandlers(FlowEvent event) {
@@ -340,9 +367,9 @@ public class FlowSinkScanner implements BeanPostProcessor {
 		}
 
 		private boolean matches(FlowEvent event) {
-			String lifecycle = String.valueOf(event.eventContext().get("lifecycle"));
+			String lifecycle = String.valueOf(event.eventContext().get(DefaultFlowProcessor.LIFECYCLE));
 			OnFlowLifecycle.Lifecycle resolved = resolveLifecycle(lifecycle);
-			if (!lifecycles.contains(resolved)) {
+			if (resolved == null || !lifecycles.contains(resolved)) {
 				return false;
 			}
 			String name = event.name();
@@ -356,13 +383,16 @@ public class FlowSinkScanner implements BeanPostProcessor {
 		}
 
 		private static OnFlowLifecycle.Lifecycle resolveLifecycle(String lifecycle) {
-			if ("STARTED".equals(lifecycle)) {
+			if (DefaultFlowProcessor.STARTED.equals(lifecycle)) {
 				return OnFlowLifecycle.Lifecycle.STARTED;
 			}
-			if ("FAILED".equals(lifecycle)) {
+			if (DefaultFlowProcessor.COMPLETED.equals(lifecycle)) {
+				return OnFlowLifecycle.Lifecycle.COMPLETED;
+			}
+			if (DefaultFlowProcessor.FAILED.equals(lifecycle)) {
 				return OnFlowLifecycle.Lifecycle.FAILED;
 			}
-			return OnFlowLifecycle.Lifecycle.COMPLETED;
+			return null;
 		}
 
 		private void invoke(FlowEvent event) {

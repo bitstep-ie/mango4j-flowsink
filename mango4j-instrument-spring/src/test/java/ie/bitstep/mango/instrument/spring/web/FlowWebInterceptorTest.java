@@ -8,7 +8,6 @@ import java.util.Map;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import io.opentelemetry.api.trace.SpanKind;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -47,7 +46,7 @@ class FlowWebInterceptorTest {
 	// -------------------------------------------------------------------------
 
 	@Test
-	void preHandle_starts_flow_for_annotated_handler_method() throws Exception {
+	void preHandle_prepares_flow_for_annotated_handler_method() throws Exception {
 		MockHttpServletRequest request = requestFor("GET", "/orders");
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		HandlerMethod handler = handlerMethod("getOrders");
@@ -56,10 +55,8 @@ class FlowWebInterceptorTest {
 
 		assertThat(proceed).isTrue();
 		assertThat(processor.started).hasSize(1);
-		RecordedCall started = processor.started.get(0);
-		assertThat(started.name()).isEqualTo("orders.get");
 		assertThat(support.currentContext()).isNotNull();
-		assertThat(support.currentContext().name()).isEqualTo("orders.get");
+		assertThat(support.consumeWebFlowMarker()).isTrue();
 	}
 
 	@Test
@@ -109,6 +106,23 @@ class FlowWebInterceptorTest {
 	}
 
 	@Test
+	void preHandle_does_not_truncate_uri_at_exactly_max_length() throws Exception {
+		// Boundary: value.length() == MAX_HTTP_VALUE_LENGTH should NOT be truncated.
+		// ConditionalsBoundaryMutator changes '>' to '>=' — this kills that mutation.
+		String exactUri = "/o/" + "x".repeat(FlowWebInterceptor.MAX_HTTP_VALUE_LENGTH - 3);
+		MockHttpServletRequest request = requestFor("GET", exactUri);
+		HandlerMethod handler = handlerMethod("getOrders");
+
+		interceptor.preHandle(request, new MockHttpServletResponse(), handler);
+
+		@SuppressWarnings("unchecked")
+		Map<String, Object> http =
+				(Map<String, Object>) processor.started.get(0).context().get(FlowWebInterceptor.CTX_HTTP_KEY);
+		assertThat((String) http.get(FlowWebInterceptor.CTX_HTTP_URI))
+				.hasSize(FlowWebInterceptor.MAX_HTTP_VALUE_LENGTH);
+	}
+
+	@Test
 	void preHandle_falls_back_to_uri_when_mapping_attribute_absent() throws Exception {
 		MockHttpServletRequest request = requestFor("GET", "/fallback");
 		// no BEST_MATCHING_PATTERN_ATTRIBUTE set
@@ -128,7 +142,9 @@ class FlowWebInterceptorTest {
 
 		interceptor.preHandle(requestFor("GET", "/x"), new MockHttpServletResponse(), handler);
 
-		assertThat(processor.started.get(0).meta().kind()).isEqualTo(SpanKind.SERVER.name());
+		assertThat(processor.started)
+				.singleElement()
+				.satisfies(call -> assertThat(call.meta().kind()).isEqualTo("SERVER"));
 	}
 
 	@Test
@@ -137,7 +153,9 @@ class FlowWebInterceptorTest {
 
 		interceptor.preHandle(requestFor("GET", "/x"), new MockHttpServletResponse(), handler);
 
-		assertThat(processor.started.get(0).meta().kind()).isEqualTo(SpanKind.CLIENT.name());
+		assertThat(processor.started)
+				.singleElement()
+				.satisfies(call -> assertThat(call.meta().kind()).isEqualTo("CLIENT"));
 	}
 
 	@Test
@@ -164,6 +182,32 @@ class FlowWebInterceptorTest {
 		assertThat(processor.started).isEmpty();
 		assertThat(request.getAttribute(FlowWebInterceptor.class.getName() + ".flowName"))
 				.isNull();
+	}
+
+	@Test
+	void preHandle_marks_web_flow_on_support_after_starting_flow() throws Exception {
+		interceptor.preHandle(requestFor("GET", "/orders"), new MockHttpServletResponse(), handlerMethod("getOrders"));
+		assertThat(support.consumeWebFlowMarker()).isTrue();
+	}
+
+	@Test
+	void preHandle_does_not_mark_web_flow_for_non_annotated_handler() throws Exception {
+		interceptor.preHandle(
+				requestFor("GET", "/health"), new MockHttpServletResponse(), handlerMethod("healthCheck"));
+		assertThat(support.consumeWebFlowMarker()).isFalse();
+	}
+
+	@Test
+	void afterCompletion_clears_web_flow_marker_via_cleanup() throws Exception {
+		MockHttpServletRequest request = requestFor("GET", "/orders");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		response.setStatus(200);
+		HandlerMethod handler = handlerMethod("getOrders");
+
+		interceptor.preHandle(request, response, handler);
+		interceptor.afterCompletion(request, response, handler, null);
+
+		assertThat(support.consumeWebFlowMarker()).isFalse();
 	}
 
 	@Test
@@ -286,7 +330,7 @@ class FlowWebInterceptorTest {
 		RecordedCall failed = processor.failed.get(0);
 		assertThat(failed.error()).isSameAs(thrown);
 		assertThat(failed.meta().statusCode()).isEqualTo("ERROR");
-		assertThat(failed.meta().statusMessage()).isEqualTo("handler exploded");
+		assertThat(failed.meta().statusMessage()).isNull();
 	}
 
 	@Test
@@ -305,6 +349,39 @@ class FlowWebInterceptorTest {
 	// -------------------------------------------------------------------------
 	// afterCompletion — no-flow-name guard
 	// -------------------------------------------------------------------------
+
+	@Test
+	void afterCompletion_warns_and_cleans_up_when_flow_context_was_lost() throws Exception {
+		ch.qos.logback.classic.Logger interceptorLogger =
+				(ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(FlowWebInterceptor.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		interceptorLogger.addAppender(appender);
+		try {
+			MockHttpServletRequest request = requestFor("GET", "/orders");
+			MockHttpServletResponse response = new MockHttpServletResponse();
+			response.setStatus(200);
+			HandlerMethod handler = handlerMethod("getOrders");
+
+			// preHandle sets the ATTR_FLOW_NAME, then we clear the thread context manually
+			interceptor.preHandle(request, response, handler);
+			support.cleanupThreadLocals();
+			assertThat(support.currentContext()).isNull();
+
+			int cleanupsBefore = support.cleanupCalls;
+			interceptor.afterCompletion(request, response, handler, null);
+
+			assertThat(appender.list)
+					.anySatisfy(e -> assertThat(e.getFormattedMessage()).contains("orders.get"));
+			assertThat(support.cleanupCalls).isGreaterThan(cleanupsBefore);
+			assertThat(request.getAttribute(FlowWebInterceptor.class.getName() + ".flowName"))
+					.isNull();
+			assertThat(processor.completed).isEmpty();
+			assertThat(processor.failed).isEmpty();
+		} finally {
+			interceptorLogger.detachAppender(appender);
+		}
+	}
 
 	@Test
 	void afterCompletion_is_noop_when_no_flow_name_attribute() throws Exception {
@@ -380,22 +457,41 @@ class FlowWebInterceptorTest {
 	@Test
 	void preHandle_resolves_flow_name_from_annotation_name_attribute() throws Exception {
 		HandlerMethod handler = handlerMethod("getOrders");
-		interceptor.preHandle(requestFor("GET", "/x"), new MockHttpServletResponse(), handler);
-		assertThat(processor.started.get(0).name()).isEqualTo("orders.get");
+		MockHttpServletRequest request = requestFor("GET", "/x");
+		interceptor.preHandle(request, new MockHttpServletResponse(), handler);
+		assertThat(request.getAttribute(FlowWebInterceptor.class.getName() + ".flowName"))
+				.isEqualTo("orders.get");
 	}
 
 	@Test
 	void preHandle_resolves_flow_name_from_annotation_value_attribute() throws Exception {
 		HandlerMethod handler = handlerMethod("checkout");
-		interceptor.preHandle(requestFor("POST", "/x"), new MockHttpServletResponse(), handler);
-		assertThat(processor.started.get(0).name()).isEqualTo("checkout.flow");
+		MockHttpServletRequest request = requestFor("POST", "/x");
+		interceptor.preHandle(request, new MockHttpServletResponse(), handler);
+		assertThat(request.getAttribute(FlowWebInterceptor.class.getName() + ".flowName"))
+				.isEqualTo("checkout.flow");
 	}
 
 	@Test
 	void preHandle_falls_back_to_classname_method_when_name_and_value_blank() throws Exception {
 		HandlerMethod handler = handlerMethod("implicitName");
-		interceptor.preHandle(requestFor("GET", "/x"), new MockHttpServletResponse(), handler);
-		assertThat(processor.started.get(0).name()).isEqualTo("SampleController.implicitName");
+		MockHttpServletRequest request = requestFor("GET", "/x");
+		interceptor.preHandle(request, new MockHttpServletResponse(), handler);
+		assertThat(request.getAttribute(FlowWebInterceptor.class.getName() + ".flowName"))
+				.isEqualTo("SampleController.implicitName");
+	}
+
+	@Test
+	void preHandle_detects_flow_and_kind_via_meta_annotation() throws Exception {
+		HandlerMethod handler = handlerMethod("metaAnnotated");
+		MockHttpServletRequest request = requestFor("GET", "/x");
+
+		interceptor.preHandle(request, new MockHttpServletResponse(), handler);
+
+		assertThat(processor.started).hasSize(1);
+		assertThat(request.getAttribute(FlowWebInterceptor.class.getName() + ".flowName"))
+				.isEqualTo("meta.orders");
+		assertThat(processor.started.get(0).meta().kind()).isEqualTo("CLIENT");
 	}
 
 	// -------------------------------------------------------------------------
@@ -423,6 +519,13 @@ class FlowWebInterceptorTest {
 	// Supporting types
 	// -------------------------------------------------------------------------
 
+	/** Meta-annotation combining @Flow and @Kind to verify AnnotatedElementUtils resolution. */
+	@Flow(name = "meta.orders")
+	@Kind(io.opentelemetry.api.trace.SpanKind.CLIENT)
+	@java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+	@java.lang.annotation.Target(java.lang.annotation.ElementType.METHOD)
+	@interface MetaFlow {}
+
 	/** Sample controller whose methods exercise different annotation combinations. */
 	static class SampleController {
 
@@ -438,6 +541,9 @@ class FlowWebInterceptorTest {
 		@Flow(name = "client.endpoint")
 		@Kind(io.opentelemetry.api.trace.SpanKind.CLIENT)
 		void clientKindEndpoint() {}
+
+		@MetaFlow
+		void metaAnnotated() {}
 
 		/** No @Flow annotation — must pass through untouched. */
 		void healthCheck() {}

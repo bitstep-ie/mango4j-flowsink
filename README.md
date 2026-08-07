@@ -111,7 +111,13 @@ class StockService {
 Listen to lifecycle events:
 
 ```java
+import java.util.Map;
+
 import ie.bitstep.mango.instrument.model.FlowEvent;
+import ie.bitstep.mango.instrument.annotations.OnFlowCompleted;
+import ie.bitstep.mango.instrument.annotations.OnFlowScope;
+import ie.bitstep.mango.instrument.annotations.OnFlowStarted;
+import ie.bitstep.mango.instrument.annotations.PullAllAttributes;
 import ie.bitstep.mango.instrument.spring.annotations.FlowSink;
 
 @FlowSink

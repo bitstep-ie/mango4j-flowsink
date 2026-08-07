@@ -7,7 +7,7 @@ public final class FlowHandlerRegistry {
 	private final CopyOnWriteArrayList<FlowSinkHandler> handlers = new CopyOnWriteArrayList<>();
 
 	public void register(FlowSinkHandler handler) {
-		if (handler != null) {
+		if (handler != null && !handlers.contains(handler)) {
 			handlers.add(handler);
 		}
 	}

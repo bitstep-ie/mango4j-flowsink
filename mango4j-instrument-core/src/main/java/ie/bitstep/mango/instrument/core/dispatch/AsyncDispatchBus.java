@@ -2,6 +2,7 @@ package ie.bitstep.mango.instrument.core.dispatch;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.UndeclaredThrowableException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,13 +22,14 @@ public final class AsyncDispatchBus implements AutoCloseable {
 
 	private final FlowHandlerRegistry registry;
 	private final Map<FlowSinkHandler, Worker> workers = new ConcurrentHashMap<>();
+	private final AtomicBoolean closed = new AtomicBoolean(false);
 
 	public AsyncDispatchBus(FlowHandlerRegistry registry) {
 		this.registry = Objects.requireNonNull(registry, "registry");
 	}
 
 	public void dispatch(FlowEvent event) {
-		if (event == null) {
+		if (event == null || closed.get()) {
 			return;
 		}
 		List<FlowSinkHandler> handlers = registry.handlers();
@@ -36,10 +38,40 @@ public final class AsyncDispatchBus implements AutoCloseable {
 		}
 	}
 
+	static Throwable unwrap(Throwable throwable) {
+		Throwable current = throwable;
+		Throwable next = Worker.unwrapOne(current);
+		while (next != null && next != current) {
+			current = next;
+			next = Worker.unwrapOne(current);
+		}
+		return current;
+	}
+
 	@Override
 	public void close() {
-		workers.values().forEach(Worker::shutdown);
+		closed.set(true);
+		List<Thread> threads = new ArrayList<>();
+		workers.values().forEach(w -> {
+			threads.add(w.thread);
+			w.shutdown();
+		});
 		workers.clear();
+		boolean interrupted = false;
+		long deadline = System.currentTimeMillis() + 5_000;
+		for (Thread t : threads) {
+			try {
+				long remaining = deadline - System.currentTimeMillis();
+				if (remaining > 0) {
+					t.join(remaining);
+				}
+			} catch (InterruptedException e) {
+				interrupted = true;
+			}
+		}
+		if (interrupted) {
+			Thread.currentThread().interrupt();
+		}
 	}
 
 	static final int MAX_QUEUE_DEPTH = 10_000;
@@ -52,17 +84,14 @@ public final class AsyncDispatchBus implements AutoCloseable {
 
 		private Worker(FlowSinkHandler sink) {
 			this.sink = sink;
-			this.thread =
-					new Thread(this, "mango4j-instrument-" + sink.getClass().getSimpleName());
+			this.thread = new Thread(this, "mango4j-instrument-" + sink.sinkName());
 			this.thread.setDaemon(true);
 			this.thread.start();
 		}
 
 		private void offer(FlowEvent event) {
 			if (!queue.offer(event)) {
-				log.warn(
-						"Event dropped for sink {}: queue rejected offer",
-						sink.getClass().getName());
+				log.warn("Event dropped for sink {}: queue rejected offer", sink.sinkName());
 			}
 		}
 
@@ -82,26 +111,27 @@ public final class AsyncDispatchBus implements AutoCloseable {
 					}
 				} catch (InterruptedException interruptedException) {
 					Thread.currentThread().interrupt();
-				} catch (Exception throwable) {
-					Throwable root = unwrap(throwable);
+				} catch (
+						Throwable throwable) { // NOSONAR - must survive sink Errors so the worker queue is not orphaned
+					Throwable root = AsyncDispatchBus.unwrap(throwable);
+					String eventName = event != null ? event.name() : "<poll>";
 					log.warn(
 							"Flow sink {} failed to handle event {} due to {}",
-							sink.getClass().getName(),
-							event.name(),
+							sink.sinkName(),
+							eventName,
 							root.getMessage(),
 							root);
 				}
 			}
-		}
-
-		private static Throwable unwrap(Throwable throwable) {
-			Throwable current = throwable;
-			Throwable next = unwrapOne(current);
-			while (next != null && next != current) {
-				current = next;
-				next = unwrapOne(current);
+			// Drain any events still queued at shutdown so nothing is silently lost
+			FlowEvent pending;
+			while ((pending = queue.poll()) != null) {
+				try {
+					sink.handle(pending);
+				} catch (Exception e) {
+					log.warn("Flow sink {} failed during shutdown drain", sink.sinkName(), e);
+				}
 			}
-			return current;
 		}
 
 		private static Throwable unwrapOne(Throwable t) {

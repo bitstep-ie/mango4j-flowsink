@@ -49,6 +49,15 @@ public abstract class AbstractTraceContextFilter {
 	 * {@code traceparent}/{@code tracestate}, B3 single-header, and B3 multi-header formats.
 	 */
 	protected void applyTraceHeaders(UnaryOperator<String> headerLookup) {
+		TraceContextHeaders headers = resolveTraceHeaders(headerLookup);
+		putIfPresent(TRACEPARENT, headers.traceparent());
+		putIfPresent(TRACESTATE, headers.tracestate());
+		putIfPresent(TRACE_ID, headers.traceId());
+		putIfPresent(SPAN_ID, headers.spanId());
+		putIfPresent(PARENT_SPAN_ID, headers.parentSpanId());
+	}
+
+	protected TraceContextHeaders resolveTraceHeaders(UnaryOperator<String> headerLookup) {
 		String traceparent = truncate(normalize(headerLookup.apply(TRACEPARENT)), MAX_TRACE_HEADER_LENGTH);
 		String tracestate = truncate(normalize(headerLookup.apply(TRACESTATE)), MAX_TRACESTATE_LENGTH);
 		String b3 = truncate(normalize(headerLookup.apply("b3")), MAX_TRACE_HEADER_LENGTH);
@@ -75,11 +84,7 @@ public abstract class AbstractTraceContextFilter {
 			parentSpanId = truncate(normalize(headerLookup.apply("X-B3-ParentSpanId")), MAX_PARENT_SPAN_ID_LENGTH);
 		}
 
-		putIfPresent(TRACEPARENT, traceparent);
-		putIfPresent(TRACESTATE, tracestate);
-		putIfPresent(TRACE_ID, traceId);
-		putIfPresent(SPAN_ID, spanId);
-		putIfPresent(PARENT_SPAN_ID, parentSpanId);
+		return new TraceContextHeaders(traceparent, tracestate, traceId, spanId, parentSpanId);
 	}
 
 	/** Cleans up thread-local flow state and restores the MDC to the snapshot returned by {@link #saveMdcState()}. */
@@ -147,4 +152,7 @@ public abstract class AbstractTraceContextFilter {
 		}
 		return new String[0];
 	}
+
+	protected record TraceContextHeaders(
+			String traceparent, String tracestate, String traceId, String spanId, String parentSpanId) {}
 }

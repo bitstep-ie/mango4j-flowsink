@@ -1,10 +1,11 @@
 package ie.bitstep.mango.instrument.core.processor;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.opentelemetry.api.trace.SpanKind;
@@ -47,7 +48,7 @@ class DefaultFlowProcessorTest {
 	void emits_started_and_completed_events_with_meta_and_cleans_up_context() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
+		CountDownLatch delivered = registerRecordingSink(registry, seen, 2);
 		RecordingSupport support = new RecordingSupport();
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(new AsyncDispatchBus(registry), support);
 		FlowMeta startMeta = FlowMeta.builder()
@@ -59,7 +60,7 @@ class DefaultFlowProcessorTest {
 		processor.onFlowStarted("demo.flow", Map.of("user.id", "alice"), Map.of("tenant.id", "bitstep"), startMeta);
 		processor.onFlowCompleted("demo.flow", Map.of("result", "ok"), Map.of(), endMeta);
 
-		awaitSize(seen, 2);
+		assertThat(awaitDelivered(delivered)).isTrue();
 		FlowEvent started = seen.get(0);
 		FlowEvent completed = seen.get(1);
 
@@ -74,6 +75,8 @@ class DefaultFlowProcessorTest {
 		assertThat(started.attributes().map()).containsEntry("trace.tracestate", "vendor=data");
 		assertThat(completed.attributes().map()).containsEntry("result", "ok");
 		assertThat(completed.status()).isEqualTo(new FlowStatus(StatusCode.OK, "done"));
+		assertThat(started.endTimestamp()).isNull();
+		assertThat(completed.endTimestamp()).isNotNull().isAfterOrEqualTo(completed.timestamp());
 		assertThat(support.startBatchCalls).isEqualTo(1);
 		assertThat(support.clearBatchCalls).isEqualTo(1);
 		assertThat(support.currentContext()).isNull();
@@ -84,7 +87,7 @@ class DefaultFlowProcessorTest {
 	void failed_flow_validates_input_and_records_error_details() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
+		CountDownLatch delivered = registerRecordingSink(registry, seen, 2);
 		RecordingSupport support = new RecordingSupport();
 		AtomicInteger validations = new AtomicInteger();
 		FlowAttributeValidator validator = (key, value) -> validations.incrementAndGet();
@@ -94,11 +97,12 @@ class DefaultFlowProcessorTest {
 		processor.onFlowStarted("demo.flow", Map.of(), Map.of(), null);
 		processor.onFlowFailed("demo.flow", failure, Map.of("order.id", "123"), Map.of("tenant.id", "bitstep"), null);
 
-		awaitSize(seen, 2);
+		assertThat(awaitDelivered(delivered)).isTrue();
 		FlowEvent failedEvent = seen.get(1);
 		assertThat(failedEvent.eventContext()).containsEntry("lifecycle", "FAILED");
 		assertThat(failedEvent.eventContext()).containsEntry("tenant.id", "bitstep");
 		assertThat(failedEvent.throwable()).isSameAs(failure);
+		assertThat(failedEvent.endTimestamp()).isNotNull().isAfterOrEqualTo(failedEvent.timestamp());
 		assertThat(failedEvent.attributes().map())
 				.containsEntry("order.id", "123")
 				.containsEntry("error", "IllegalStateException");
@@ -111,7 +115,7 @@ class DefaultFlowProcessorTest {
 	void completion_invokes_validator_and_batch_cleanup_hooks() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
+		CountDownLatch delivered = registerRecordingSink(registry, seen, 2);
 		RecordingSupport support = new RecordingSupport();
 		RecordingValidator validator = new RecordingValidator();
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(new AsyncDispatchBus(registry), support, validator);
@@ -119,7 +123,7 @@ class DefaultFlowProcessorTest {
 		processor.onFlowStarted("demo.flow", Map.of(), Map.of(), null);
 		processor.onFlowCompleted("demo.flow", Map.of("result", "ok"), Map.of("tenant.id", "bitstep"), null);
 
-		awaitSize(seen, 2);
+		assertThat(awaitDelivered(delivered)).isTrue();
 		FlowEvent completed = seen.get(1);
 		assertThat(completed.eventContext()).containsEntry("tenant.id", "bitstep");
 		assertThat(validator.validatedMapNames).containsExactly("attributes", "context", "attributes", "context");
@@ -131,7 +135,7 @@ class DefaultFlowProcessorTest {
 	void completion_meta_applies_kind_trace_and_tracestate_before_status() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
+		CountDownLatch delivered = registerRecordingSink(registry, seen, 2);
 		RecordingSupport support = new RecordingSupport();
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(new AsyncDispatchBus(registry), support);
 
@@ -146,7 +150,7 @@ class DefaultFlowProcessorTest {
 						.status("ERROR", "bad")
 						.build());
 
-		awaitSize(seen, 2);
+		assertThat(awaitDelivered(delivered)).isTrue();
 		FlowEvent completed = seen.get(1);
 		assertThat(completed.kind()).isEqualTo(SpanKind.CLIENT);
 		assertThat(completed.traceId()).isEqualTo("trace-2");
@@ -160,7 +164,7 @@ class DefaultFlowProcessorTest {
 	void falls_back_for_invalid_kind_and_status_code_and_noops_when_disabled() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
+		CountDownLatch delivered = registerRecordingSink(registry, seen, 2);
 		FlowProcessorSupport support = new FlowProcessorSupport();
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(new AsyncDispatchBus(registry), support);
 
@@ -178,7 +182,7 @@ class DefaultFlowProcessorTest {
 				Map.of(),
 				FlowMeta.builder().status("NOT_A_STATUS", "weird").build());
 
-		awaitSize(seen, 2);
+		assertThat(awaitDelivered(delivered)).isTrue();
 		assertThat(seen.get(0).kind()).isEqualTo(SpanKind.INTERNAL);
 		assertThat(seen.get(1).status()).isEqualTo(new FlowStatus(StatusCode.UNSET, "weird"));
 
@@ -191,7 +195,7 @@ class DefaultFlowProcessorTest {
 	void completion_and_failure_without_active_context_are_ignored_and_null_error_is_allowed() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
+		CountDownLatch delivered = registerRecordingSink(registry, seen, 2);
 		FlowProcessorSupport support = new FlowProcessorSupport();
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(new AsyncDispatchBus(registry), support);
 
@@ -221,7 +225,7 @@ class DefaultFlowProcessorTest {
 				Map.of(),
 				FlowMeta.builder().status("ERROR", null).build());
 
-		awaitSize(seen, 2);
+		assertThat(awaitDelivered(delivered)).isTrue();
 		FlowEvent failedEvent = seen.get(1);
 		assertThat(failedEvent.eventContext()).containsEntry("lifecycle", "FAILED");
 		assertThat(failedEvent.throwable()).isNull();
@@ -231,12 +235,10 @@ class DefaultFlowProcessorTest {
 	}
 
 	@Test
-	void supports_null_bus_and_null_support_dependencies() {
-		DefaultFlowProcessor nullSupportProcessor = new DefaultFlowProcessor(null, null);
-
-		nullSupportProcessor.onFlowStarted("demo.flow", Map.of(), Map.of(), null);
-		nullSupportProcessor.onFlowCompleted("demo.flow", Map.of(), Map.of(), null);
-		nullSupportProcessor.onFlowFailed("demo.flow", new IllegalStateException("boom"), Map.of(), Map.of(), null);
+	void supports_null_bus_dependency() {
+		assertThatThrownBy(() -> new DefaultFlowProcessor(null, null))
+				.isInstanceOf(NullPointerException.class)
+				.hasMessageContaining("support");
 
 		FlowProcessorSupport support = new FlowProcessorSupport();
 		DefaultFlowProcessor noBusProcessor = new DefaultFlowProcessor(null, support);
@@ -252,45 +254,47 @@ class DefaultFlowProcessorTest {
 	}
 
 	@Test
-	void private_meta_helpers_cover_null_guards_and_trace_variants() throws Exception {
+	void package_private_meta_helpers_cover_null_guards_and_trace_variants() {
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(null, new FlowProcessorSupport());
-		Method applyMeta = DefaultFlowProcessor.class.getDeclaredMethod("applyMeta", FlowEvent.class, FlowMeta.class);
-		Method applyCompletionMeta =
-				DefaultFlowProcessor.class.getDeclaredMethod("applyCompletionMeta", FlowEvent.class, FlowMeta.class);
-		Method resolveKind = DefaultFlowProcessor.class.getDeclaredMethod("resolveKind", String.class);
-		applyMeta.setAccessible(true);
-		applyCompletionMeta.setAccessible(true);
-		resolveKind.setAccessible(true);
 
 		FlowEvent event = FlowEvent.builder().name("demo.flow").build();
 
-		applyMeta.invoke(processor, null, FlowMeta.builder().kind("SERVER").build());
-		applyMeta.invoke(processor, event, null);
-		applyMeta.invoke(processor, event, FlowMeta.builder().build());
+		processor.applyMeta(null, FlowMeta.builder().kind("SERVER").build());
+		processor.applyMeta(event, null);
+		processor.applyMeta(event, FlowMeta.builder().build());
 		assertThat(event.kind()).isEqualTo(SpanKind.INTERNAL);
-		applyMeta.invoke(
-				processor,
-				event,
-				FlowMeta.builder().trace(null, "span-1", null, "state").build());
+		processor.applyMeta(
+				event, FlowMeta.builder().trace(null, "span-1", null, "state").build());
 		assertThat(event.traceId()).isNull();
 		assertThat(event.spanId()).isEqualTo("span-1");
 		assertThat(event.attributes().map()).containsEntry("trace.tracestate", "state");
 
-		applyCompletionMeta.invoke(
-				processor, null, FlowMeta.builder().status("OK", "done").build());
-		applyCompletionMeta.invoke(processor, event, null);
-		applyCompletionMeta.invoke(
-				processor, event, FlowMeta.builder().status(null, "done").build());
+		processor.applyCompletionMeta(
+				null, FlowMeta.builder().status("OK", "done").build());
+		processor.applyCompletionMeta(event, null);
+		processor.applyCompletionMeta(
+				event, FlowMeta.builder().status(null, "done").build());
+		processor.applyCompletionMeta(
+				event,
+				FlowMeta.builder()
+						.kind("CLIENT")
+						.trace("trace-2", "span-2", "parent-2", "state=ok")
+						.build());
+		assertThat(event.kind()).isEqualTo(SpanKind.CLIENT);
+		assertThat(event.traceId()).isEqualTo("trace-2");
+		assertThat(event.spanId()).isEqualTo("span-2");
+		assertThat(event.parentSpanId()).isEqualTo("parent-2");
+		assertThat(event.attributes().map()).containsEntry("trace.tracestate", "state=ok");
 		assertThat(event.status()).isNull();
-		assertThat(resolveKind.invoke(null, "SERVER")).isEqualTo(SpanKind.SERVER);
-		assertThat(resolveKind.invoke(null, "NOT_A_KIND")).isEqualTo(SpanKind.INTERNAL);
+		assertThat(DefaultFlowProcessor.resolveKind("SERVER")).isEqualTo(SpanKind.SERVER);
+		assertThat(DefaultFlowProcessor.resolveKind("NOT_A_KIND")).isEqualTo(SpanKind.INTERNAL);
 	}
 
 	@Test
 	void completion_and_failure_are_no_ops_when_support_is_disabled() {
 		FlowHandlerRegistry registry = new FlowHandlerRegistry();
 		List<FlowEvent> seen = new CopyOnWriteArrayList<>();
-		registry.register(seen::add);
+		CountDownLatch delivered = registerRecordingSink(registry, seen, 1);
 		FlowProcessorSupport support = new FlowProcessorSupport();
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(new AsyncDispatchBus(registry), support);
 
@@ -301,7 +305,7 @@ class DefaultFlowProcessorTest {
 		processor.onFlowFailed("demo.flow", new IllegalStateException("x"), Map.of(), Map.of(), null);
 
 		// No new events since support is disabled; only the STARTED event was emitted
-		awaitSize(seen, 1);
+		assertThat(awaitDelivered(delivered)).isTrue();
 		assertThat(seen).hasSize(1);
 		assertThat(seen.get(0).eventContext()).containsEntry("lifecycle", "STARTED");
 	}
@@ -321,16 +325,12 @@ class DefaultFlowProcessorTest {
 	}
 
 	@Test
-	void apply_meta_covers_parent_span_id_only_trace_path() throws Exception {
+	void apply_meta_covers_parent_span_id_only_trace_path() {
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(null, new FlowProcessorSupport());
-		Method applyMeta = DefaultFlowProcessor.class.getDeclaredMethod("applyMeta", FlowEvent.class, FlowMeta.class);
-		applyMeta.setAccessible(true);
 
 		FlowEvent event = FlowEvent.builder().name("demo.flow").build();
-		applyMeta.invoke(
-				processor,
-				event,
-				FlowMeta.builder().trace(null, null, "parent-only", null).build());
+		processor.applyMeta(
+				event, FlowMeta.builder().trace(null, null, "parent-only", null).build());
 
 		assertThat(event.traceId()).isNull();
 		assertThat(event.spanId()).isNull();
@@ -338,18 +338,15 @@ class DefaultFlowProcessorTest {
 	}
 
 	@Test
-	void apply_meta_does_not_clear_existing_trace_or_add_blank_tracestate() throws Exception {
+	void apply_meta_does_not_clear_existing_trace_or_add_blank_tracestate() {
 		DefaultFlowProcessor processor = new DefaultFlowProcessor(null, new FlowProcessorSupport());
-		Method applyMeta = DefaultFlowProcessor.class.getDeclaredMethod("applyMeta", FlowEvent.class, FlowMeta.class);
-		applyMeta.setAccessible(true);
 
 		FlowEvent event = FlowEvent.builder().name("demo.flow").build();
-		event.kind(SpanKind.SERVER);
+		event.setKind(SpanKind.SERVER);
 		event.trace("trace-1", "span-1", "parent-1");
 		event.attributes().put("existing", "value");
 
-		applyMeta.invoke(
-				processor,
+		processor.applyMeta(
 				event,
 				FlowMeta.builder().kind(null).trace(null, null, null, " ").build());
 
@@ -360,20 +357,23 @@ class DefaultFlowProcessorTest {
 		assertThat(event.attributes().map()).containsEntry("existing", "value").doesNotContainKey("trace.tracestate");
 	}
 
-	private static void awaitSize(List<FlowEvent> events, int expectedSize) {
-		long deadline = System.currentTimeMillis() + 2000;
-		while (System.currentTimeMillis() < deadline) {
-			if (events.size() >= expectedSize) {
-				return;
-			}
-			try {
-				Thread.sleep(20);
-			} catch (InterruptedException interruptedException) {
-				Thread.currentThread().interrupt();
-				break;
-			}
+	private static CountDownLatch registerRecordingSink(
+			FlowHandlerRegistry registry, List<FlowEvent> seen, int expectedEvents) {
+		CountDownLatch delivered = new CountDownLatch(expectedEvents);
+		registry.register(event -> {
+			seen.add(event);
+			delivered.countDown();
+		});
+		return delivered;
+	}
+
+	private static boolean awaitDelivered(CountDownLatch delivered) {
+		try {
+			return delivered.await(2, TimeUnit.SECONDS);
+		} catch (InterruptedException interruptedException) {
+			Thread.currentThread().interrupt();
+			return false;
 		}
-		assertThat(events).hasSize(expectedSize);
 	}
 
 	private static final class RecordingSupport extends FlowProcessorSupport {

@@ -13,6 +13,6 @@ import java.lang.annotation.Target;
  * dedicated failure handlers. It is still lifecycle-based, not root-outcome-based.
  */
 @Documented
-@Target(ElementType.METHOD)
+@Target({ElementType.METHOD, ElementType.ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface OnFlowFailure {}
