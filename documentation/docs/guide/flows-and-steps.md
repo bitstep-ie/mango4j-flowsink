@@ -72,6 +72,10 @@ You can enrich emitted events with:
 
 Attributes are usually business metadata. Context values are usually runtime metadata that sinks may need for routing or correlation.
 
+These annotations only work on method parameters. For values you want to push from inside a method body — computed
+conditionally, inside a loop, or from code that doesn't own the annotated method's signature — see
+[Flow Context](flow-context.md) for the programmatic equivalent.
+
 ### Example
 
 ```java
