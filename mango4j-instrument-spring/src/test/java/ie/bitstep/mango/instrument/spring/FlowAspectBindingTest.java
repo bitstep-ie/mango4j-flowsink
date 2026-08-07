@@ -82,7 +82,7 @@ class FlowAspectBindingTest {
 			assertThat(failed.eventContext()).containsEntry("lifecycle", "FAILED");
 			assertThat(failed.attributes().map()).containsKey("error");
 			assertThat(failed.throwable()).isInstanceOf(IllegalArgumentException.class);
-			assertThat(failed.status()).extracting("code", "message").containsExactly(StatusCode.ERROR, "bad:carol");
+			assertThat(failed.status()).extracting("code", "message").containsExactly(StatusCode.ERROR, null);
 		}
 	}
 

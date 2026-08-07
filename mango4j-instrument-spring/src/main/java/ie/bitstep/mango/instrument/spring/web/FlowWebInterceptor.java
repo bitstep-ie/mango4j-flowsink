@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.lang.Nullable;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -16,7 +17,6 @@ import ie.bitstep.mango.instrument.annotations.Kind;
 import ie.bitstep.mango.instrument.core.FlowProcessorSupport;
 import ie.bitstep.mango.instrument.core.processor.FlowMeta;
 import ie.bitstep.mango.instrument.core.processor.FlowProcessor;
-import ie.bitstep.mango.instrument.model.FlowEvent;
 
 /**
  * A Spring MVC {@link HandlerInterceptor} that integrates {@link Flow}-annotated controller methods with the
@@ -25,8 +25,8 @@ import ie.bitstep.mango.instrument.model.FlowEvent;
  * <p>When a request arrives at a controller method that carries {@code @Flow}:
  *
  * <ol>
- *   <li>{@code preHandle} — calls {@link FlowProcessor#onFlowStarted} with the resolved flow name and HTTP metadata
- *       (method, URI, URL mapping) stored in the event context.
+ *   <li>{@code preHandle} — captures the resolved flow name and HTTP metadata (method, URI, URL mapping), stores them
+ *       for the aspect, and marks the request as a web-root flow.
  *   <li>{@code afterCompletion} — calls {@link FlowProcessor#onFlowCompleted} (or {@link FlowProcessor#onFlowFailed}
  *       when an exception was raised or the response carries a 4xx/5xx status) and records the HTTP status code in the
  *       event context.
@@ -34,9 +34,11 @@ import ie.bitstep.mango.instrument.model.FlowEvent;
  *
  * <p>Non-{@code @Flow} handler methods pass through without any instrumentation.
  *
- * <p>Because this interceptor creates the {@link FlowEvent} <em>before</em> the AOP {@code FlowAspect} runs, the aspect
- * detects an already-active flow and records only the nested step/span — it does <strong>not</strong> start a duplicate
- * root flow.
+ * <p>Because this interceptor calls {@link FlowProcessor#onFlowStarted} before the AOP {@code FlowAspect} intercepts
+ * the controller method, it sets a web-flow marker on {@link ie.bitstep.mango.instrument.core.FlowProcessorSupport} so
+ * the aspect can detect the already-started flow. The aspect consumes the marker, merges any {@code @PushAttribute} /
+ * {@code @PushContextValue} parameters into the existing event, and proceeds without emitting its own lifecycle calls.
+ * Nested {@code @Flow} and {@code @Step} service calls within the controller body run normally.
  *
  * @see FlowProcessor
  * @see ie.bitstep.mango.instrument.spring.aspect.FlowAspect
@@ -79,7 +81,7 @@ public class FlowWebInterceptor implements HandlerInterceptor {
 		}
 
 		Method method = handlerMethod.getMethod();
-		Flow flow = method.getAnnotation(Flow.class);
+		Flow flow = AnnotatedElementUtils.findMergedAnnotation(method, Flow.class);
 		if (flow == null) {
 			return true;
 		}
@@ -89,8 +91,8 @@ public class FlowWebInterceptor implements HandlerInterceptor {
 
 		FlowMeta meta = buildStartMeta(method);
 		Map<String, Object> httpCtx = buildHttpContext(request);
-
 		processor.onFlowStarted(flowName, Map.of(), httpCtx, meta);
+		support.markWebFlow();
 
 		return true;
 	}
@@ -104,6 +106,17 @@ public class FlowWebInterceptor implements HandlerInterceptor {
 			return; // handler was not @Flow-annotated
 		}
 
+		if (support.currentContext() == null) {
+			log.warn(
+					"FlowWebInterceptor: no active flow context on this thread for '{}' — "
+							+ "completed/failed events will not be dispatched. "
+							+ "Async controller methods are not supported; use @Flow on service-layer methods instead.",
+					flowName);
+			support.cleanupThreadLocals();
+			request.removeAttribute(ATTR_FLOW_NAME);
+			return;
+		}
+
 		try {
 			int statusCode = response.getStatus();
 			boolean clientOrServerError = statusCode >= 400;
@@ -112,7 +125,7 @@ public class FlowWebInterceptor implements HandlerInterceptor {
 
 			if (ex != null || clientOrServerError) {
 				FlowMeta meta = FlowMeta.builder()
-						.status("ERROR", ex != null ? ex.getMessage() : String.valueOf(statusCode))
+						.status("ERROR", ex != null ? null : String.valueOf(statusCode))
 						.build();
 				processor.onFlowFailed(flowName, ex, Map.of(), httpCtx, meta);
 			} else {
@@ -142,12 +155,12 @@ public class FlowWebInterceptor implements HandlerInterceptor {
 	}
 
 	private static FlowMeta buildStartMeta(Method method) {
-		Kind kindAnnotation = method.getAnnotation(Kind.class);
+		Kind kindAnnotation = AnnotatedElementUtils.findMergedAnnotation(method, Kind.class);
 		FlowMeta.Builder builder = FlowMeta.builder();
 		if (kindAnnotation != null) {
 			builder.kind(kindAnnotation.value().name());
 		} else {
-			builder.kind("SERVER"); // controllers are SERVER spans by default
+			builder.kind("SERVER");
 		}
 		return builder.build();
 	}

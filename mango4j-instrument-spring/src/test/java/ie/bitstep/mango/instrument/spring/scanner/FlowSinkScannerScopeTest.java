@@ -89,7 +89,7 @@ class FlowSinkScannerScopeTest {
 		@OnFlowFailure
 		public void onFailure(
 				@ie.bitstep.mango.instrument.annotations.FlowException(
-								ie.bitstep.mango.instrument.annotations.FlowException.Source.ROOT)
+								ie.bitstep.mango.instrument.annotations.FlowException.Source.ROOT_CAUSE)
 						Throwable throwable) {
 			failure.incrementAndGet();
 			rootFailure = throwable;

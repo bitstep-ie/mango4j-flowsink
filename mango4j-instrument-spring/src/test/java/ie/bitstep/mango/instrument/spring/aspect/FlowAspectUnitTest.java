@@ -9,7 +9,9 @@ import java.util.Map;
 
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import ie.bitstep.mango.instrument.annotations.Flow;
 import ie.bitstep.mango.instrument.annotations.OrphanAlert;
 import ie.bitstep.mango.instrument.annotations.PushAttribute;
@@ -25,6 +27,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FlowAspectUnitTest {
+
+	@AfterEach
+	void clearMdc() {
+		MDC.clear();
+	}
 
 	/**
 	 * This test demonstrates the intended semantic distinction: a nested flow can complete successfully inside an
@@ -55,6 +62,26 @@ class FlowAspectUnitTest {
 	}
 
 	@Test
+	void started_flow_meta_includes_trace_fields_from_mdc() throws Throwable {
+		assertTraceMetaField("traceId", "trace-123");
+	}
+
+	@Test
+	void started_flow_meta_includes_span_id_from_mdc() throws Throwable {
+		assertTraceMetaField("spanId", "span-456");
+	}
+
+	@Test
+	void started_flow_meta_includes_parent_span_id_from_mdc() throws Throwable {
+		assertTraceMetaField("parentSpanId", "parent-789");
+	}
+
+	@Test
+	void started_flow_meta_includes_tracestate_from_mdc() throws Throwable {
+		assertTraceMetaField("tracestate", "state-abc");
+	}
+
+	@Test
 	void orphan_step_failure_preserves_existing_error_attribute() throws Throwable {
 		TrackingSupport support = new TrackingSupport();
 		RecordingProcessor processor = new RecordingProcessor(support);
@@ -71,7 +98,7 @@ class FlowAspectUnitTest {
 		RecordedCall failed = processor.failed.get(0);
 		assertThat(failed.attrs).containsEntry("error", "manual");
 		assertThat(failed.meta.statusCode()).isEqualTo("ERROR");
-		assertThat(failed.meta.statusMessage()).isEqualTo("boom");
+		assertThat(failed.meta.statusMessage()).isNull();
 		assertThat(support.currentContext()).isNull();
 		assertThat(support.cleanupCalls).isEqualTo(1);
 		assertThat(support.orphanStepName).isEqualTo("Samples.orphanWithErrorAttr(..)");
@@ -141,7 +168,7 @@ class FlowAspectUnitTest {
 		assertThat(processor.failedSnapshots).singleElement().satisfies(event -> assertThat(event.returnValue())
 				.isNull());
 		assertThat(processor.failed).singleElement().satisfies(call -> assertThat(call.attrs())
-				.containsEntry("error", "java.lang.IllegalStateException: boom"));
+				.containsEntry("error", "IllegalStateException"));
 		assertThat(support.cleanupCalls).isEqualTo(1);
 		assertThat(support.currentContext()).isNull();
 	}
@@ -212,6 +239,54 @@ class FlowAspectUnitTest {
 	}
 
 	@Test
+	void merges_attributes_into_existing_web_flow_without_lifecycle_calls() throws Throwable {
+		TrackingSupport support = new TrackingSupport();
+		support.markWebFlow();
+		RecordingProcessor processor = new RecordingProcessor(support);
+		FlowAspect aspect = new FlowAspect(processor, support);
+		FlowEvent webFlow = FlowEvent.builder().name("checkout.submit").build();
+		support.push(webFlow);
+		Method method = Samples.class.getDeclaredMethod("nestedFlow", String.class, int.class);
+
+		Object result = aspect.aroundFlow(joinPoint(method, new Object[] {"alice", 3}, () -> "ok"));
+
+		assertThat(result).isEqualTo("ok");
+		assertThat(processor.started).isEmpty();
+		assertThat(processor.completed).isEmpty();
+		assertThat(processor.failed).isEmpty();
+		assertThat(support.currentContext()).isSameAs(webFlow);
+		assertThat(webFlow.attributes().map()).containsEntry("user.id", "alice");
+		assertThat(webFlow.eventContext()).containsEntry("cart.size", 3);
+		assertThat(webFlow.returnValue()).isEqualTo("ok");
+		assertThat(support.cleanupCalls).isZero();
+		assertThat(support.consumeWebFlowMarker()).isFalse();
+	}
+
+	@Test
+	void web_flow_marker_path_propagates_exception_without_lifecycle_calls() throws Throwable {
+		TrackingSupport support = new TrackingSupport();
+		support.markWebFlow();
+		RecordingProcessor processor = new RecordingProcessor(support);
+		FlowAspect aspect = new FlowAspect(processor, support);
+		FlowEvent webFlow = FlowEvent.builder().name("checkout.submit").build();
+		webFlow.setReturnValue("prior");
+		support.push(webFlow);
+		Method method = Samples.class.getDeclaredMethod("nestedFlow", String.class, int.class);
+
+		assertThatThrownBy(() -> aspect.aroundFlow(joinPoint(method, new Object[] {"alice", 3}, () -> {
+					throw new IllegalStateException("boom");
+				})))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("boom");
+
+		assertThat(processor.started).isEmpty();
+		assertThat(processor.failed).isEmpty();
+		assertThat(support.currentContext()).isSameAs(webFlow);
+		assertThat(webFlow.returnValue()).isNull();
+		assertThat(support.cleanupCalls).isZero();
+	}
+
+	@Test
 	void resolve_flow_and_step_name_fall_back_to_signature_when_annotation_is_absent() throws Exception {
 		Method resolveFlowName = FlowAspect.class.getDeclaredMethod("resolveFlowName", ProceedingJoinPoint.class);
 		Method resolveStepName = FlowAspect.class.getDeclaredMethod("resolveStepName", ProceedingJoinPoint.class);
@@ -227,6 +302,48 @@ class FlowAspectUnitTest {
 		Method flowMethod = Samples.class.getDeclaredMethod("voidFlow");
 		assertThat(resolveStepName.invoke(null, joinPoint(flowMethod, new Object[0], () -> null)))
 				.isEqualTo("Samples.voidFlow(..)");
+	}
+
+	private static void assertTraceMetaField(String key, String value) throws Throwable {
+		TrackingSupport support = new TrackingSupport();
+		RecordingProcessor processor = new RecordingProcessor(support);
+		FlowAspect aspect = new FlowAspect(processor, support);
+		Method method = Samples.class.getDeclaredMethod("nestedFlow", String.class, int.class);
+
+		MDC.put(key, value);
+		Object result = aspect.aroundFlow(joinPoint(method, new Object[] {"alice", 2}, () -> "ok"));
+
+		assertThat(result).isEqualTo("ok");
+		assertThat(processor.started).singleElement().satisfies(call -> {
+			assertThat(call.meta.kind()).isNull();
+			switch (key) {
+				case "traceId" -> {
+					assertThat(call.meta.traceId()).isEqualTo(value);
+					assertThat(call.meta.spanId()).isNull();
+					assertThat(call.meta.parentSpanId()).isNull();
+					assertThat(call.meta.tracestate()).isNull();
+				}
+				case "spanId" -> {
+					assertThat(call.meta.traceId()).isNull();
+					assertThat(call.meta.spanId()).isEqualTo(value);
+					assertThat(call.meta.parentSpanId()).isNull();
+					assertThat(call.meta.tracestate()).isNull();
+				}
+				case "parentSpanId" -> {
+					assertThat(call.meta.traceId()).isNull();
+					assertThat(call.meta.spanId()).isNull();
+					assertThat(call.meta.parentSpanId()).isEqualTo(value);
+					assertThat(call.meta.tracestate()).isNull();
+				}
+				case "tracestate" -> {
+					assertThat(call.meta.traceId()).isNull();
+					assertThat(call.meta.spanId()).isNull();
+					assertThat(call.meta.parentSpanId()).isNull();
+					assertThat(call.meta.tracestate()).isEqualTo(value);
+				}
+				default -> throw new IllegalArgumentException("Unexpected key: " + key);
+			}
+		});
 	}
 
 	private static ProceedingJoinPoint joinPoint(Method method, Object[] args, ProceedCallback callback) {

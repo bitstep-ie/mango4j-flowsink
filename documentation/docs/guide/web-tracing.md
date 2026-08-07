@@ -7,7 +7,7 @@ The Spring runtime can import inbound trace context for both servlet and WebFlux
 - servlet filter: `TraceContextFilter`
 - WebFlux filter: `TraceContextWebFilter`
 
-These filters populate the current flow context from inbound headers so downstream sinks and processors can see:
+These filters populate trace context from inbound headers so downstream sinks and processors can see:
 
 - trace id
 - span id
@@ -16,7 +16,19 @@ These filters populate the current flow context from inbound headers so downstre
 
 ## Header Formats
 
-The runtime currently supports common W3C and B3 patterns exercised by the test suite.
+The runtime supports three header formats, tried in priority order:
+
+| Format | Headers read |
+|---|---|
+| W3C Trace Context | `traceparent`, `tracestate` |
+| B3 single-header | `b3` |
+| B3 multi-header | `X-B3-TraceId`, `X-B3-SpanId`, `X-B3-ParentSpanId` |
+
+If `traceparent` is present it takes priority. B3 single-header is tried next. B3 multi-header is the fallback.
+
+The servlet filter writes the resolved trace keys into SLF4J MDC for the current request thread.
+The WebFlux filter applies the same trace keys to MDC for the duration of the request and restores the previous MDC state
+when the chain completes.
 
 ## When It Activates
 

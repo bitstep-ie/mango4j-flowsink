@@ -24,6 +24,9 @@ class FlowEventTest {
 		assertThat(step.endTimeUnixNano()).isEqualTo(20L);
 		assertThat(step.elapsedNanos()).isEqualTo(75L);
 		assertThat(step.attributes().map()).containsEntry("sku", "123").containsEntry("status", "ok");
+		assertThat(event.endTimestamp()).isNull(); // endTimestamp is set only by markEnd(), not by endStepEvent()
+
+		event.markEnd(null);
 		assertThat(event.endTimestamp()).isNotNull();
 	}
 
@@ -77,7 +80,7 @@ class FlowEventTest {
 		event.trace("trace-1", "span-2", "parent-3");
 		event.setReturnValue("ok");
 		event.clearReturnValue();
-		event.kind(null);
+		event.setKind(null);
 		event.endStepEvent(30L, 40L, Map.of("ignored", true));
 
 		StepEvent step = new StepEvent("demo.step", 10L, null, "INTERNAL");
@@ -88,7 +91,7 @@ class FlowEventTest {
 
 		assertThat(event.timestamp()).isEqualTo(timestamp);
 		assertThat(event.attributes().map()).containsEntry("user.id", "alice");
-		assertThat(event.getEventContext()).containsEntry("lifecycle", "STARTED");
+		assertThat(event.eventContext()).containsEntry("lifecycle", "STARTED");
 		assertThat(event.traceId()).isEqualTo("trace-1");
 		assertThat(event.spanId()).isEqualTo("span-2");
 		assertThat(event.parentSpanId()).isEqualTo("parent-3");
@@ -123,6 +126,19 @@ class FlowEventTest {
 		event.clearReturnValue();
 
 		assertThat(event.returnValue()).isNull();
+	}
+
+	@Test
+	void mark_end_records_provided_instant_and_falls_back_to_now_when_null() {
+		Instant specific = Instant.parse("2024-06-01T12:00:00Z");
+		FlowEvent event = FlowEvent.builder().name("demo.flow").build();
+
+		event.markEnd(specific);
+		assertThat(event.endTimestamp()).isEqualTo(specific);
+
+		FlowEvent nullEvent = FlowEvent.builder().name("demo.flow").build();
+		nullEvent.markEnd(null);
+		assertThat(nullEvent.endTimestamp()).isNotNull().isAfter(specific);
 	}
 
 	@Test

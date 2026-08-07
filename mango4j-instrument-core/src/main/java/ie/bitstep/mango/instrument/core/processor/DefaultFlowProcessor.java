@@ -3,6 +3,7 @@ package ie.bitstep.mango.instrument.core.processor;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
@@ -29,14 +30,14 @@ public class DefaultFlowProcessor implements FlowProcessor {
 	public DefaultFlowProcessor(
 			AsyncDispatchBus asyncBus, FlowProcessorSupport support, FlowAttributeValidator validator) {
 		this.asyncBus = asyncBus;
-		this.support = support;
+		this.support = Objects.requireNonNull(support, "support");
 		this.validator = validator;
 	}
 
 	@Override
 	public void onFlowStarted(
 			String name, Map<String, Object> extraAttrs, Map<String, Object> extraContext, FlowMeta meta) {
-		if (support == null || !support.isEnabled()) {
+		if (!support.isEnabled()) {
 			return;
 		}
 		Map<String, Object> attrs = copy(extraAttrs);
@@ -58,7 +59,7 @@ public class DefaultFlowProcessor implements FlowProcessor {
 	@Override
 	public void onFlowCompleted(
 			String name, Map<String, Object> extraAttrs, Map<String, Object> extraContext, FlowMeta meta) {
-		if (support == null || !support.isEnabled()) {
+		if (!support.isEnabled()) {
 			return;
 		}
 		Map<String, Object> attrs = copy(extraAttrs);
@@ -69,6 +70,7 @@ public class DefaultFlowProcessor implements FlowProcessor {
 		if (event == null) {
 			return;
 		}
+		event.markEnd(Instant.now());
 		event.attributes().map().putAll(attrs);
 		event.eventContext().putAll(ctx);
 		event.eventContext().put(LIFECYCLE, COMPLETED);
@@ -87,7 +89,7 @@ public class DefaultFlowProcessor implements FlowProcessor {
 			Map<String, Object> extraAttrs,
 			Map<String, Object> extraContext,
 			FlowMeta meta) {
-		if (support == null || !support.isEnabled()) {
+		if (!support.isEnabled()) {
 			return;
 		}
 		Map<String, Object> attrs = copy(extraAttrs);
@@ -101,6 +103,7 @@ public class DefaultFlowProcessor implements FlowProcessor {
 		if (event == null) {
 			return;
 		}
+		event.markEnd(Instant.now());
 		event.attributes().map().putAll(attrs);
 		event.eventContext().putAll(ctx);
 		event.eventContext().put(LIFECYCLE, FAILED);
@@ -125,12 +128,12 @@ public class DefaultFlowProcessor implements FlowProcessor {
 		return new LinkedHashMap<>(source == null ? Map.of() : source);
 	}
 
-	private void applyMeta(FlowEvent event, FlowMeta meta) {
+	void applyMeta(FlowEvent event, FlowMeta meta) {
 		if (event == null || meta == null) {
 			return;
 		}
 		if (meta.kind() != null) {
-			event.kind(resolveKind(meta.kind()));
+			event.setKind(resolveKind(meta.kind()));
 		}
 		if (meta.traceId() != null || meta.spanId() != null || meta.parentSpanId() != null) {
 			event.trace(meta.traceId(), meta.spanId(), meta.parentSpanId());
@@ -140,11 +143,12 @@ public class DefaultFlowProcessor implements FlowProcessor {
 		}
 	}
 
-	private void applyCompletionMeta(FlowEvent event, FlowMeta meta) {
-		applyMeta(event, meta);
+	void applyCompletionMeta(FlowEvent event, FlowMeta meta) {
 		if (event == null || meta == null || meta.statusCode() == null) {
+			applyMeta(event, meta);
 			return;
 		}
+		applyMeta(event, meta);
 		StatusCode code;
 		try {
 			code = StatusCode.valueOf(meta.statusCode());
@@ -154,7 +158,7 @@ public class DefaultFlowProcessor implements FlowProcessor {
 		event.setStatus(new FlowStatus(code, meta.statusMessage()));
 	}
 
-	private static SpanKind resolveKind(String value) {
+	static SpanKind resolveKind(String value) {
 		try {
 			return SpanKind.valueOf(value);
 		} catch (IllegalArgumentException ex) {

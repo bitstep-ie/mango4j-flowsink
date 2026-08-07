@@ -4,7 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import ie.bitstep.mango.instrument.core.FlowProcessorSupport;
 import ie.bitstep.mango.instrument.model.FlowEvent;
 import ie.bitstep.mango.instrument.validation.FlowAttributeValidator;
@@ -214,6 +218,37 @@ class FlowContextTest {
 		context.putAllAttrs(Map.of("tenant.id", "bitstep"));
 
 		assertThat(validator.validatedKeys).isEmpty();
+	}
+
+	@Test
+	void logs_debug_when_any_write_method_is_called_without_active_flow() {
+		Logger logger = (Logger) LoggerFactory.getLogger(FlowContext.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			FlowProcessorSupport support = new FlowProcessorSupport();
+			FlowContext context = new FlowContext(support);
+
+			context.putAttr("user.id", "alice");
+			context.putContext("cart.size", 3);
+			context.putAllAttrs(Map.of("tenant.id", "bitstep"));
+			context.putAllContext(Map.of("currency", "EUR"));
+
+			List<String> messages = appender.list.stream()
+					.map(ILoggingEvent::getFormattedMessage)
+					.toList();
+			assertThat(messages)
+					.anySatisfy(m -> assertThat(m).contains("putAttr").contains("user.id"));
+			assertThat(messages)
+					.anySatisfy(m -> assertThat(m).contains("putContext").contains("cart.size"));
+			assertThat(messages)
+					.anySatisfy(m -> assertThat(m).contains("putAllAttrs").contains("1"));
+			assertThat(messages)
+					.anySatisfy(m -> assertThat(m).contains("putAllContext").contains("1"));
+		} finally {
+			logger.detachAppender(appender);
+		}
 	}
 
 	@Test

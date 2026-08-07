@@ -1,5 +1,8 @@
 package ie.bitstep.mango.instrument.spring;
 
+import java.util.Objects;
+
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -7,6 +10,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.context.annotation.Role;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.util.ReflectionUtils;
+import ie.bitstep.mango.instrument.annotations.Flow;
+import ie.bitstep.mango.instrument.annotations.PushAttribute;
+import ie.bitstep.mango.instrument.annotations.PushContextValue;
+import ie.bitstep.mango.instrument.annotations.Step;
 import ie.bitstep.mango.instrument.context.FlowContext;
 import ie.bitstep.mango.instrument.core.FlowProcessorSupport;
 import ie.bitstep.mango.instrument.core.dispatch.AsyncDispatchBus;
@@ -14,6 +23,7 @@ import ie.bitstep.mango.instrument.core.processor.DefaultFlowProcessor;
 import ie.bitstep.mango.instrument.core.processor.FlowProcessor;
 import ie.bitstep.mango.instrument.core.sinks.FlowHandlerRegistry;
 import ie.bitstep.mango.instrument.core.sinks.FlowSinkHandler;
+import ie.bitstep.mango.instrument.spring.annotations.FlowSink;
 import ie.bitstep.mango.instrument.spring.aspect.FlowAspect;
 import ie.bitstep.mango.instrument.spring.scanner.FlowSinkScanner;
 import ie.bitstep.mango.instrument.spring.validation.HibernateEntityDetector;
@@ -85,8 +95,12 @@ public class MangoInstrumentationConfiguration {
 	}
 
 	/**
-	 * {@link BeanPostProcessor} that registers each {@link FlowSinkHandler} bean with the {@link FlowHandlerRegistry}
-	 * as it is initialised.
+	 * {@link BeanPostProcessor} that registers plain {@link FlowSinkHandler} beans with the
+	 * {@link FlowHandlerRegistry}.
+	 *
+	 * <p>Beans annotated with {@link FlowSink} are excluded here because {@link FlowSinkScanner} compiles and registers
+	 * them via annotation-driven routing. Registering such a bean through both paths would result in every event being
+	 * handled twice.
 	 *
 	 * @param registryProvider lazy provider for the {@link FlowHandlerRegistry}
 	 * @return the post-processor
@@ -97,7 +111,10 @@ public class MangoInstrumentationConfiguration {
 			@Override
 			public Object postProcessAfterInitialization(Object bean, String beanName) {
 				if (bean instanceof FlowSinkHandler sink) {
-					registryProvider.getObject().register(sink);
+					Class<?> targetType = Objects.requireNonNullElseGet(AopUtils.getTargetClass(bean), bean::getClass);
+					if (!AnnotatedElementUtils.hasAnnotation(targetType, FlowSink.class)) {
+						registryProvider.getObject().register(sink);
+					}
 				}
 				return bean;
 			}
@@ -114,5 +131,72 @@ public class MangoInstrumentationConfiguration {
 	@Bean
 	public static FlowSinkScanner flowSinkScanner(ObjectProvider<FlowHandlerRegistry> registryProvider) {
 		return new FlowSinkScanner(registryProvider);
+	}
+
+	/**
+	 * Detects methods annotated with both {@link Flow} and {@link Step} at startup and throws
+	 * {@link IllegalStateException}, failing the application context before any request is served.
+	 *
+	 * @return the post-processor
+	 */
+	@Bean
+	public static BeanPostProcessor pushAttributeKeyValidator() {
+		return new BeanPostProcessor() {
+			@Override
+			public Object postProcessAfterInitialization(Object bean, String beanName) {
+				Class<?> targetType = Objects.requireNonNullElseGet(AopUtils.getTargetClass(bean), bean::getClass);
+				ReflectionUtils.doWithMethods(targetType, method -> {
+					if (method.isBridge()) {
+						return;
+					}
+					boolean hasFlow = AnnotatedElementUtils.hasAnnotation(method, Flow.class);
+					boolean hasStep = AnnotatedElementUtils.hasAnnotation(method, Step.class);
+					if (!hasFlow && !hasStep) {
+						return;
+					}
+					java.lang.annotation.Annotation[][] paramAnns = method.getParameterAnnotations();
+					for (java.lang.annotation.Annotation[] paramAnn : paramAnns) {
+						for (java.lang.annotation.Annotation ann : paramAnn) {
+							if (ann instanceof PushAttribute pa && pa.value().isBlank()) {
+								throw new IllegalStateException(targetType.getName() + "." + method.getName()
+										+ "() has a @PushAttribute with a blank key"
+										+ " — provide a non-blank key");
+							}
+							if (ann instanceof PushContextValue pcv
+									&& pcv.value().isBlank()) {
+								throw new IllegalStateException(targetType.getName() + "." + method.getName()
+										+ "() has a @PushContextValue with a blank key"
+										+ " — provide a non-blank key");
+							}
+						}
+					}
+				});
+				return bean;
+			}
+		};
+	}
+
+	@Bean
+	public static BeanPostProcessor flowAnnotationConflictDetector() {
+		return new BeanPostProcessor() {
+			@Override
+			public Object postProcessAfterInitialization(Object bean, String beanName) {
+				Class<?> targetType = Objects.requireNonNullElseGet(AopUtils.getTargetClass(bean), bean::getClass);
+				ReflectionUtils.doWithMethods(targetType, method -> {
+					if (method.isBridge()) {
+						return;
+					}
+					boolean hasFlow = AnnotatedElementUtils.hasAnnotation(method, Flow.class);
+					boolean hasStep = AnnotatedElementUtils.hasAnnotation(method, Step.class);
+					if (hasFlow && hasStep) {
+						throw new IllegalStateException(
+								targetType.getName() + "." + method.getName() + "() is annotated with both"
+										+ " @Flow and @Step — use one or the other, they cannot coexist on"
+										+ " the same method");
+					}
+				});
+				return bean;
+			}
+		};
 	}
 }

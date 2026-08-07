@@ -9,8 +9,6 @@ import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import ie.bitstep.mango.instrument.annotations.PushAttribute;
 import ie.bitstep.mango.instrument.annotations.PushContextValue;
-import ie.bitstep.mango.instrument.spring.validation.HibernateEntityDetector;
-import ie.bitstep.mango.instrument.spring.validation.HibernateEntityLogLevel;
 
 public final class AttributeParamExtractor {
 
@@ -49,7 +47,6 @@ public final class AttributeParamExtractor {
 		if (key.isBlank()) {
 			return;
 		}
-		HibernateEntityDetector.checkNotHibernateEntity(key, value, HibernateEntityLogLevel.ERROR);
 		target.put(key, value);
 	}
 }

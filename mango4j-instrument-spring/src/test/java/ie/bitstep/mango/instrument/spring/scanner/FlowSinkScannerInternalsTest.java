@@ -1,6 +1,7 @@
 package ie.bitstep.mango.instrument.spring.scanner;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.Proxy;
@@ -29,6 +30,7 @@ import ie.bitstep.mango.instrument.annotations.PullContextValue;
 import ie.bitstep.mango.instrument.model.FlowEvent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FlowSinkScannerInternalsTest {
 
@@ -49,8 +51,8 @@ class FlowSinkScannerInternalsTest {
 				FlowSinkScanner.class.getDeclaredMethod("chooseThrowable", FlowEvent.class, boolean.class);
 		Method coerce = FlowSinkScanner.class.getDeclaredMethod("coerce", Object.class, Class.class);
 		Method nullToEmpty = FlowSinkScanner.class.getDeclaredMethod("nullToEmpty", String.class);
-		Method extractScopes = FlowSinkScanner.class.getDeclaredMethod("extractScopes", Annotation[].class);
-		Method extractLifecycles = FlowSinkScanner.class.getDeclaredMethod("extractLifecycles", Annotation[].class);
+		Method extractScopes = FlowSinkScanner.class.getDeclaredMethod("extractScopes", AnnotatedElement.class);
+		Method extractLifecycles = FlowSinkScanner.class.getDeclaredMethod("extractLifecycles", AnnotatedElement.class);
 		Method buildParamBinding = FlowSinkScanner.class.getDeclaredMethod(
 				"buildParamBinding", Parameter.class, Annotation[].class, boolean.class);
 
@@ -109,14 +111,14 @@ class FlowSinkScannerInternalsTest {
 		Function<FlowEvent, Object> noBinding = (Function<FlowEvent, Object>)
 				buildParamBinding.invoke(null, noBindingParam, noBindingParam.getAnnotations(), false);
 		@SuppressWarnings("unchecked")
-		List<String> scopes = (List<String>) extractScopes.invoke(null, (Object) ScopedType.class.getAnnotations());
+		List<String> scopes = (List<String>) extractScopes.invoke(null, ScopedType.class);
 		@SuppressWarnings("unchecked")
-		Set<OnFlowLifecycle.Lifecycle> lifecycles = (Set<OnFlowLifecycle.Lifecycle>)
-				extractLifecycles.invoke(null, (Object) LifecycleType.class.getAnnotations());
+		Set<OnFlowLifecycle.Lifecycle> lifecycles =
+				(Set<OnFlowLifecycle.Lifecycle>) extractLifecycles.invoke(null, LifecycleType.class);
 		Method directLifecycleMethod = DirectLifecycleType.class.getDeclaredMethod("started");
 		@SuppressWarnings("unchecked")
-		Set<OnFlowLifecycle.Lifecycle> directLifecycles = (Set<OnFlowLifecycle.Lifecycle>)
-				extractLifecycles.invoke(null, (Object) directLifecycleMethod.getAnnotations());
+		Set<OnFlowLifecycle.Lifecycle> directLifecycles =
+				(Set<OnFlowLifecycle.Lifecycle>) extractLifecycles.invoke(null, directLifecycleMethod);
 
 		assertThat(scopeMatches.invoke(null, List.of("orders.checkout"), "orders.checkout.pay"))
 				.isEqualTo(true);
@@ -207,8 +209,10 @@ class FlowSinkScannerInternalsTest {
 				.isNull();
 
 		Method invalidBindingMethod = SampleSink.class.getDeclaredMethod("invalidBinding", Integer.class);
-		assertThat(compileHandler.invoke(scanner, sink, invalidBindingMethod, List.of(), Set.of()))
-				.isNull();
+		assertThatThrownBy(() -> compileHandler.invoke(scanner, sink, invalidBindingMethod, List.of(), Set.of()))
+				.cause()
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("cannot be bound");
 
 		Object mismatchedProxy = Proxy.newProxyInstance(
 				Runnable.class.getClassLoader(), new Class<?>[] {Runnable.class}, (proxy, method, args) -> null);
@@ -437,7 +441,7 @@ class FlowSinkScannerInternalsTest {
 		void annotated(
 				@PullAttribute("sku") String sku,
 				Throwable ignored,
-				@FlowException(FlowException.Source.ROOT) Throwable root) {}
+				@FlowException(FlowException.Source.ROOT_CAUSE) Throwable root) {}
 
 		void flowEvent(FlowEvent event) {}
 
@@ -459,7 +463,7 @@ class FlowSinkScannerInternalsTest {
 
 		@OnFlowLifecycle(OnFlowLifecycle.Lifecycle.FAILED)
 		void onFailedLifecycle(
-				@FlowException(FlowException.Source.ROOT) Throwable throwable,
+				@FlowException(FlowException.Source.ROOT_CAUSE) Throwable throwable,
 				@PullContextValue("trace.id") String traceId,
 				@PullAllAttributes java.util.Map<String, Object> attributes,
 				@PullAllContextValues java.util.Map<String, Object> context) {
@@ -492,13 +496,55 @@ class FlowSinkScannerInternalsTest {
 		void directStartedLifecycle() {}
 	}
 
+	@Test
+	void compile_handler_throws_for_unresolvable_parameter() throws Exception {
+		FlowSinkScanner scanner = new FlowSinkScanner(new ie.bitstep.mango.instrument.core.sinks.FlowHandlerRegistry());
+		Method compileHandler = FlowSinkScanner.class.getDeclaredMethod(
+				"compileHandler", Object.class, Method.class, List.class, Set.class);
+		compileHandler.setAccessible(true);
+
+		SampleSink sink = new SampleSink();
+		Method invalidBindingMethod = SampleSink.class.getDeclaredMethod("invalidBinding", Integer.class);
+
+		assertThatThrownBy(() -> compileHandler.invoke(scanner, sink, invalidBindingMethod, List.of(), Set.of()))
+				.cause()
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("cannot be bound")
+				.hasMessageContaining("invalidBinding");
+	}
+
+	@Test
+	void post_process_logs_warn_for_no_handler_sink() {
+		Logger logger = (Logger) LoggerFactory.getLogger(FlowSinkScanner.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			ie.bitstep.mango.instrument.core.sinks.FlowHandlerRegistry localRegistry =
+					new ie.bitstep.mango.instrument.core.sinks.FlowHandlerRegistry();
+			FlowSinkScanner scanner = new FlowSinkScanner(localRegistry);
+			scanner.postProcessAfterInitialization(new NoHandlerSink(), "noHandlerSink");
+
+			assertThat(localRegistry.handlers()).isEmpty();
+			assertThat(appender.list)
+					.anySatisfy(event -> assertThat(event.getFormattedMessage()).contains("no invocable handler"));
+		} finally {
+			logger.detachAppender(appender);
+		}
+	}
+
 	@ie.bitstep.mango.instrument.spring.annotations.FlowSink
 	static class LoggingSink {
 		@OnFlowStarted
 		void onStart() {}
 	}
 
+	@ie.bitstep.mango.instrument.spring.annotations.FlowSink
+	static class NoHandlerSink {
+		public void helperOnly() {}
+	}
+
 	static class FlowExceptionSamples {
-		void wrappedAndOtherAnnotation(@FlowException(FlowException.Source.CAUSE) @Deprecated Throwable throwable) {}
+		void wrappedAndOtherAnnotation(@FlowException(FlowException.Source.THROWN) @Deprecated Throwable throwable) {}
 	}
 }

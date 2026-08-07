@@ -9,7 +9,7 @@ import java.lang.annotation.Target;
 import io.opentelemetry.api.trace.SpanKind;
 
 @Documented
-@Target(ElementType.METHOD)
+@Target({ElementType.METHOD, ElementType.ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Kind {
 	SpanKind value() default SpanKind.INTERNAL;

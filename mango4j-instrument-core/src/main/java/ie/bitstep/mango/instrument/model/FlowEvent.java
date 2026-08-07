@@ -51,16 +51,16 @@ public class FlowEvent {
 		return endTimestamp;
 	}
 
+	public void markEnd(Instant ts) {
+		this.endTimestamp = ts == null ? Instant.now() : ts;
+	}
+
 	public FlowAttributes attributes() {
 		return attributes;
 	}
 
 	public Map<String, Object> eventContext() {
 		return eventContext;
-	}
-
-	public Map<String, Object> getEventContext() {
-		return eventContext();
 	}
 
 	public List<StepEvent> events() {
@@ -91,7 +91,7 @@ public class FlowEvent {
 		return kind;
 	}
 
-	public void kind(SpanKind kind) {
+	public void setKind(SpanKind kind) {
 		this.kind = kind == null ? SpanKind.INTERNAL : kind;
 	}
 
@@ -138,7 +138,6 @@ public class FlowEvent {
 		}
 		openStep.event.setEndTimeUnixNano(endEpochNanos);
 		openStep.event.setElapsedNanos(Math.max(0L, endNanoTime - openStep.startNanoTime()));
-		this.endTimestamp = Instant.now();
 	}
 
 	public FlowEvent snapshot() {
@@ -149,7 +148,7 @@ public class FlowEvent {
 		for (StepEvent event : events) {
 			copy.events.add(event.snapshot());
 		}
-		copy.kind(kind);
+		copy.setKind(kind);
 		copy.setStatus(status);
 		copy.setThrowable(throwable);
 		copy.setReturnValue(returnValue);
