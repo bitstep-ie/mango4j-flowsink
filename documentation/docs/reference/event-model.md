@@ -1,6 +1,6 @@
 # Event Model
 
-`mango4j-instrument` models a root flow as a `FlowEvent` and nested work items as `StepEvent` entries inside that flow.
+`mango4j-flowsink` models a root flow as a `FlowEvent` and nested work items as `StepEvent` entries inside that flow.
 
 ## `FlowEvent`
 
@@ -38,9 +38,9 @@ Example:
 ```java
 import java.util.Map;
 
-import ie.bitstep.mango.instrument.model.FlowEvent;
-import ie.bitstep.mango.instrument.model.FlowAttributes;
-import ie.bitstep.mango.instrument.model.StepEvent;
+import ie.bitstep.mango.flowsink.model.FlowEvent;
+import ie.bitstep.mango.flowsink.model.FlowAttributes;
+import ie.bitstep.mango.flowsink.model.StepEvent;
 
 FlowEvent flow = FlowEvent.builder().name("checkout.submit").build();
 flow.beginStepEvent("checkout.stock.reserve", 10L, 100L, new FlowAttributes(), "CLIENT");

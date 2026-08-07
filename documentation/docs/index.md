@@ -1,12 +1,12 @@
-<h1 style="display:none;">mango4j-instrument</h1>
+<h1 style="display:none;">mango4j-flowsink</h1>
 
 <figure markdown="span">
     ![Logo](./assets/mango-with-text-black.png#only-light)
     ![Logo](./assets/mango-with-text-white.png#only-dark)
-    <figcaption>mango4j-instrument</figcaption>
+    <figcaption>mango4j-flowsink</figcaption>
 </figure>
 
-`mango4j-instrument` is a Spring-focused instrumentation library for capturing flows, steps, metadata, failures, and inbound trace context without tying your application to a single telemetry backend.
+`mango4j-flowsink` is a Spring-focused instrumentation library for capturing flows, steps, metadata, failures, and inbound trace context without tying your application to a single telemetry backend.
 
 ## Start Here
 
@@ -20,10 +20,10 @@
 
 ## Modules
 
-- `mango4j-instrument-annotations`: reusable annotations and API surface
-- `mango4j-instrument-core`: event model, processor support, validation, and dispatch
-- `mango4j-instrument-spring`: Spring AOP runtime, sink scanning, and trace filters
-- `mango4j-instrument-spring-boot`: Boot auto-configuration layer
+- `mango4j-flowsink-annotations`: reusable annotations and API surface
+- `mango4j-flowsink-core`: event model, processor support, validation, and dispatch
+- `mango4j-flowsink-spring`: Spring AOP runtime, sink scanning, and trace filters
+- `mango4j-flowsink-spring-boot`: Boot auto-configuration layer
 
 ## Design Goals
 
@@ -38,9 +38,9 @@
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.RestController;
 
-import ie.bitstep.mango.instrument.annotations.Flow;
-import ie.bitstep.mango.instrument.annotations.PushAttribute;
-import ie.bitstep.mango.instrument.annotations.Step;
+import ie.bitstep.mango.flowsink.annotations.Flow;
+import ie.bitstep.mango.flowsink.annotations.PushAttribute;
+import ie.bitstep.mango.flowsink.annotations.Step;
 
 @RestController
 class CheckoutController {

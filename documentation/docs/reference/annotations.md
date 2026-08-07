@@ -43,12 +43,15 @@ These are resolved by the Spring scanner when it compiles sink handlers.
 ## Semantics At A Glance
 
 - `@Flow` and `@Step` both support `value` or `name`
+- Do not place `@Flow` and `@Step` on the same method — the conflict detector throws `IllegalStateException` at application startup if this is found
 - `@OnFlowScope` is repeatable and works on types or methods
 - `@PushAttribute` and `@PushContextValue` forward values verbatim, so do not use them for secrets
-- `@OnFlowFailure` is the failure-specific lifecycle hook
-- `@OnFlowSuccess` is the success-specific lifecycle hook
-- `@OnFlowCompleted` is the generic completion hook
+- `@OnFlowFailure` fires only when the flow failed
+- `@OnFlowSuccess` fires only when the flow completed successfully
+- `@OnFlowCompleted` fires for any terminal outcome (both success and failure)
 - `@OrphanAlert` controls the log level used when a step is auto-promoted to a flow
+- `@OnFlowLifecycle` is repeatable and works on types or methods — on a type it restricts all handlers in that sink to the named lifecycle
+- `@OnAllLifecycles` works on types or methods — on a method it opts that handler into all three lifecycle events
 
 ## Small Examples
 
@@ -62,10 +65,10 @@ public String submit(@PushAttribute("user.id") String userId) {
 ```java
 import java.util.Map;
 
-import ie.bitstep.mango.instrument.annotations.OnFlowCompleted;
-import ie.bitstep.mango.instrument.annotations.OnFlowScope;
-import ie.bitstep.mango.instrument.annotations.PullAllAttributes;
-import ie.bitstep.mango.instrument.spring.annotations.FlowSink;
+import ie.bitstep.mango.flowsink.annotations.OnFlowCompleted;
+import ie.bitstep.mango.flowsink.annotations.OnFlowScope;
+import ie.bitstep.mango.flowsink.annotations.PullAllAttributes;
+import ie.bitstep.mango.flowsink.spring.annotations.FlowSink;
 
 @FlowSink
 @OnFlowScope("checkout.")

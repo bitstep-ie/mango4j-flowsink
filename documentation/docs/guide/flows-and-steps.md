@@ -21,9 +21,9 @@ Example:
 ```java
 import org.springframework.stereotype.Service;
 
-import ie.bitstep.mango.instrument.annotations.Flow;
-import ie.bitstep.mango.instrument.annotations.PushAttribute;
-import ie.bitstep.mango.instrument.annotations.Step;
+import ie.bitstep.mango.flowsink.annotations.Flow;
+import ie.bitstep.mango.flowsink.annotations.PushAttribute;
+import ie.bitstep.mango.flowsink.annotations.Step;
 
 @Service
 class CheckoutService {
@@ -44,8 +44,8 @@ class CheckoutService {
 ```java
 import org.springframework.stereotype.Service;
 
-import ie.bitstep.mango.instrument.annotations.PushAttribute;
-import ie.bitstep.mango.instrument.annotations.Step;
+import ie.bitstep.mango.flowsink.annotations.PushAttribute;
+import ie.bitstep.mango.flowsink.annotations.Step;
 
 @Service
 class StockService {
@@ -76,10 +76,10 @@ Attributes are usually business metadata. Context values are usually runtime met
 
 ```java
 import io.opentelemetry.api.trace.SpanKind;
-import ie.bitstep.mango.instrument.annotations.Flow;
-import ie.bitstep.mango.instrument.annotations.Kind;
-import ie.bitstep.mango.instrument.annotations.PushAttribute;
-import ie.bitstep.mango.instrument.annotations.PushContextValue;
+import ie.bitstep.mango.flowsink.annotations.Flow;
+import ie.bitstep.mango.flowsink.annotations.Kind;
+import ie.bitstep.mango.flowsink.annotations.PushAttribute;
+import ie.bitstep.mango.flowsink.annotations.PushContextValue;
 
 @Service
 class PaymentService {
