@@ -1,6 +1,6 @@
 # Overview
 
-`mango4j-instrument` gives you a structured event stream around application work:
+`mango4j-flowsink` gives you a structured event stream around application work:
 
 - `@Flow` marks a root unit of work.
 - `@Step` marks nested work within a flow.
@@ -36,9 +36,9 @@ The result is a backend-agnostic event model that can be adapted to logging, met
 ```java
 import org.springframework.stereotype.Service;
 
-import ie.bitstep.mango.instrument.annotations.Flow;
-import ie.bitstep.mango.instrument.annotations.PushAttribute;
-import ie.bitstep.mango.instrument.annotations.Step;
+import ie.bitstep.mango.flowsink.annotations.Flow;
+import ie.bitstep.mango.flowsink.annotations.PushAttribute;
+import ie.bitstep.mango.flowsink.annotations.Step;
 
 @Service
 class CheckoutService {

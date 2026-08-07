@@ -5,13 +5,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>ie.bitstep.mango</groupId>
-    <artifactId>mango4j-instrument-parent</artifactId>
-    <version>0.1.3-SNAPSHOT</version>
+    <artifactId>mango4j-flowsink-parent</artifactId>
+    <version>0.1.2</version>
     <packaging>pom</packaging>
 
-    <name>mango4j-instrument</name>
+    <name>mango4j-flowsink</name>
     <description>Annotation-based flow and step instrumentation for Spring applications.</description>
-    <url>https://github.com/bitstep-ie/mango4j-instrument</url>
+    <url>https://github.com/bitstep-ie/mango4j-flowsink</url>
 
     <licenses>
         <license>
@@ -27,16 +27,16 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/bitstep-ie/mango4j-instrument.git</connection>
-        <developerConnection>scm:git:ssh://github.com/bitstep-ie/mango4j-instrument.git</developerConnection>
-        <url>https://github.com/bitstep-ie/mango4j-instrument</url>
+        <connection>scm:git:git://github.com/bitstep-ie/mango4j-flowsink.git</connection>
+        <developerConnection>scm:git:ssh://github.com/bitstep-ie/mango4j-flowsink.git</developerConnection>
+        <url>https://github.com/bitstep-ie/mango4j-flowsink</url>
     </scm>
 
     <modules>
-        <module>mango4j-instrument-annotations</module>
-        <module>mango4j-instrument-core</module>
-        <module>mango4j-instrument-spring</module>
-        <module>mango4j-instrument-spring-boot</module>
+        <module>mango4j-flowsink-annotations</module>
+        <module>mango4j-flowsink-core</module>
+        <module>mango4j-flowsink-spring</module>
+        <module>mango4j-flowsink-spring-boot</module>
     </modules>
 
     <properties>
@@ -54,7 +54,7 @@
         <pitest.junit5.plugin.version>1.2.3</pitest.junit5.plugin.version>
         <pitest.skip>true</pitest.skip>
         <sonar-maven-plugin.version>5.7.0.6970</sonar-maven-plugin.version>
-        <sonar.projectKey>bitstep-ie_mango4j-instrument</sonar.projectKey>
+        <sonar.projectKey>bitstep-ie_mango4j-flowsink</sonar.projectKey>
         <sonar.organization>bitstep-ie</sonar.organization>
         <sonar.coverage.jacoco.xmlReportPaths>target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <sonar.java.source>${maven.compiler.release}</sonar.java.source>

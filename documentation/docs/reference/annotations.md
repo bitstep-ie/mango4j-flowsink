@@ -65,10 +65,10 @@ public String submit(@PushAttribute("user.id") String userId) {
 ```java
 import java.util.Map;
 
-import ie.bitstep.mango.instrument.annotations.OnFlowCompleted;
-import ie.bitstep.mango.instrument.annotations.OnFlowScope;
-import ie.bitstep.mango.instrument.annotations.PullAllAttributes;
-import ie.bitstep.mango.instrument.spring.annotations.FlowSink;
+import ie.bitstep.mango.flowsink.annotations.OnFlowCompleted;
+import ie.bitstep.mango.flowsink.annotations.OnFlowScope;
+import ie.bitstep.mango.flowsink.annotations.PullAllAttributes;
+import ie.bitstep.mango.flowsink.spring.annotations.FlowSink;
 
 @FlowSink
 @OnFlowScope("checkout.")

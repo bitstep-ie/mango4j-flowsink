@@ -1,8 +1,8 @@
-site_name: "mango4j-instrument"
+site_name: "mango4j-flowsink"
 site_description: Annotation-based flow and step instrumentation for Spring applications
-site_url: https://bitstep-ie.github.io/mango4j-instrument/
-repo_url: https://github.com/bitstep-ie/mango4j-instrument
-repo_name: bitstep-ie/mango4j-instrument
+site_url: https://bitstep-ie.github.io/mango4j-flowsink/
+repo_url: https://github.com/bitstep-ie/mango4j-flowsink
+repo_name: bitstep-ie/mango4j-flowsink
 docs_dir: ./docs
 
 theme:

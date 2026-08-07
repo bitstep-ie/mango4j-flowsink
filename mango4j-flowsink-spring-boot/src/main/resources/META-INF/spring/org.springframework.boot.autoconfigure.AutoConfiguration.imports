@@ -1,0 +1,4 @@
+ie.bitstep.mango.flowsink.spring.boot.MangoFlowSinkAutoConfiguration
+ie.bitstep.mango.flowsink.spring.boot.MangoServletTraceAutoConfiguration
+ie.bitstep.mango.flowsink.spring.boot.MangoServletFlowAutoConfiguration
+ie.bitstep.mango.flowsink.spring.boot.MangoWebFluxTraceAutoConfiguration
