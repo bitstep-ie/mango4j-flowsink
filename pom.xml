@@ -44,7 +44,7 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <opentelemetry.api.version>1.53.0</opentelemetry.api.version>
-        <spring.framework.version>6.2.10</spring.framework.version>
+        <spring.framework.version>7.0.8</spring.framework.version>
         <junit.jupiter.version>5.13.4</junit.jupiter.version>
         <assertj.version>3.27.3</assertj.version>
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
