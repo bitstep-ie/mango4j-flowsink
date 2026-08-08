@@ -50,7 +50,7 @@
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
         <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
         <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
-        <pitest.maven.plugin.version>1.22.1</pitest.maven.plugin.version>
+        <pitest.maven.plugin.version>1.25.4</pitest.maven.plugin.version>
         <pitest.junit5.plugin.version>1.2.3</pitest.junit5.plugin.version>
         <pitest.skip>true</pitest.skip>
         <sonar-maven-plugin.version>5.7.0.6970</sonar-maven-plugin.version>
